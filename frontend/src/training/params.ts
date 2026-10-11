@@ -1,5 +1,5 @@
 import { validateQwenConfig } from "./qwenValidation"
-import { cloneFormModel, type FormModel, type FormValue } from "../schema/adapter"
+import { cloneFormModel, hasFormValue, type FormModel, type FormValue } from "../schema/adapter"
 import { i18n } from "../i18n"
 import { parse } from "smol-toml"
 
@@ -189,6 +189,49 @@ export function buildTrainingConfig(source: FormModel, schemaName: string) {
   return config
 }
 
+/** network_args key -> GUI field, mirroring mikazuki/utils/config_import._LYCORIS_NETWORK_ARG_TO_UI. */
+const LYCORIS_NETWORK_ARG_TO_UI: Record<string, string> = {
+  algo: "lycoris_algo",
+  factor: "lokr_factor",
+  conv_dim: "conv_dim",
+  conv_alpha: "conv_alpha",
+  dropout: "dropout",
+  module_dropout: "module_dropout",
+  unit: "dylora_unit",
+  use_cp: "use_cp",
+  use_scalar: "use_scalar",
+  decompose_both: "decompose_both",
+  bypass_mode: "bypass_mode",
+  dora_wd: "dora_wd",
+  full_matrix: "full_matrix",
+  rank_dropout: "rank_dropout",
+  rank_dropout_scale: "rank_dropout_scale",
+  train_norm: "train_norm",
+}
+const LYCORIS_BOOL_UI_FIELDS = new Set([
+  "use_cp", "use_scalar", "decompose_both", "bypass_mode", "dora_wd",
+  "full_matrix", "rank_dropout_scale", "train_norm",
+])
+
+/** Mirrors mikazuki/utils/config_import._is_invalid_import_scalar: never turn
+ *  an "undefined"/"null"/empty arg into a form value. */
+function isInvalidLycorisArgValue(raw: string) {
+  return ["", "undefined", "null", "nan"].includes(raw.trim().toLowerCase())
+}
+
+function coerceLycorisArgValue(raw: string, asBool: boolean): FormValue {
+  const value = raw.trim()
+  if (asBool) {
+    const lowered = value.toLowerCase()
+    if (["true", "1", "yes", "on"].includes(lowered)) return true
+    if (["false", "0", "no", "off"].includes(lowered)) return false
+    return value
+  }
+  if (/^-?\d+$/.test(value)) return Number.parseInt(value, 10)
+  const parsed = Number.parseFloat(value)
+  return Number.isNaN(parsed) ? value : parsed
+}
+
 export function hydrateImportedConfig(source: FormModel) {
   const config = cloneFormModel(source)
   for (const key of FLOAT_PARAMS) {
@@ -202,7 +245,14 @@ export function hydrateImportedConfig(source: FormModel) {
       const [key, ...rest] = String(raw).split("=")
       const value = rest.join("=")
       if (!key) continue
-      config[key === "algo" ? "lycoris_algo" : key] = value
+      const uiField = LYCORIS_NETWORK_ARG_TO_UI[key]
+      if (uiField) {
+        if (!isInvalidLycorisArgValue(value) && !hasFormValue(config[uiField])) {
+          config[uiField] = coerceLycorisArgValue(value, LYCORIS_BOOL_UI_FIELDS.has(uiField))
+        }
+        continue
+      }
+      config[key] = value
     }
     delete config.network_args
   }
