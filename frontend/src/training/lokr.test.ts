@@ -73,7 +73,18 @@ describe("LoKr parameters survive a config round trip", () => {
   it("rehydrates lycoris network_args into typed UI fields", () => {
     const imported = hydrateImportedConfig({
       network_module: "lycoris.kohya",
-      network_args: ["conv_dim=4", "algo=lokr", "factor=16", "use_cp=True", "train_norm=False"],
+      network_args: [
+        "conv_dim=4",
+        "algo=lokr",
+        "factor=16",
+        "use_cp=True",
+        "train_norm=False",
+        "dora_wd=True",
+        "rank_dropout=0.5",
+        "unit=8",
+        "module_dropout=0.1",
+        "dropout=undefined",
+      ],
     })
 
     expect(imported.lycoris_algo).toBe("lokr")
@@ -81,7 +92,27 @@ describe("LoKr parameters survive a config round trip", () => {
     expect(imported.conv_dim).toBe(4)
     expect(imported.use_cp).toBe(true)
     expect(imported.train_norm).toBe(false)
+    expect(imported.dora_wd).toBe(true)
+    expect(imported.rank_dropout).toBe(0.5)
+    expect(imported.dylora_unit).toBe(8)
+    expect(imported.module_dropout).toBe(0.1)
     expect(imported).not.toHaveProperty("factor")
+    // Invalid scalars ("dropout=undefined") must not become form values.
+    expect(imported).not.toHaveProperty("dropout")
+  })
+
+  it("repairs hidden companions when the imported lora_type is unknown", () => {
+    const defaults = createDefaultModel(schema)
+    const model: FormModel = {
+      ...cloneFormModel(defaults),
+      lora_type: "boft",
+      network_module: "foreign.module",
+      lokr_factor: 99,
+    }
+    applyReadonlyDefaults(schema, model, defaults)
+
+    expect(model.network_module).toBe("networks.lora_anima")
+    expect(model.lokr_factor).toBe(-1)
   })
 
   it("keeps every lokr value when the exported config is imported back", () => {
