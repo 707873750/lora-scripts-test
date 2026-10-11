@@ -83,6 +83,7 @@ Recent work integrated into `dev`:
 - **AI Toolkit model entries:** configure LoRA in the shared training page, with model-specific quantization, memory offloading and sampling options, using the existing task queue, logs and Loss monitoring.
 - **Anima path guidance:** separate defaults and remembered paths for Anima 2B / 2.9B, preserving imported paths.
 - **Engine environments and UI:** standalone Kohya management; searchable engine lists with persistent preferences.
+- **Fix · LyCORIS parameters:** on the Anima page, choosing LoKr/LoHa/T-LoRA and then reloading or importing a config reset `lokr_factor`, the convolution dim/alpha and the network type back to defaults; they now survive both paths.
 - **Reliability:** stronger environment installation checks, configuration boundaries and portable update handling.
 
 See [development progress and limitations](docs/dev-progress.md). Historical version notes are in [CHANGELOG](CHANGELOG.md) and [Releases](https://github.com/wochenlong/lora-scripts-next/releases).

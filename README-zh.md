@@ -79,6 +79,7 @@ Anima 默认路径仅用于引导，**不代表已下载权重**。模型、数�
 - **AI Toolkit 多模型入口：** 在统一训练页配置 LoRA，提供量化、显存卸载和采样预览等模型适用选项，沿用现有任务队列、日志与 Loss 监控。
 - **Anima 路径引导：** Anima 2B / 2.9B 分别记住默认与自定义路径，导入配置保留原路径。
 - **引擎环境与界面：** Kohya 独立环境管理；引擎列表支持搜索筛选，偏好与顺序持久化。
+- **修复 · LyCORIS 参数丢失：** Anima 页面选择 LoKr/LoHa/T-LoRA 等算法后，刷新页面或导入配置会把 `lokr_factor`、卷积 dim/alpha 等参数打回默认值；现已按活跃分支正确恢复。
 - **可靠性：** 加固环境安装检查、配置边界与整合包更新流程。
 
 详见 [开发进展与当前限制](docs/dev-progress.md)；历史版本说明见 [CHANGELOG](CHANGELOG.md) 和 [Releases](https://github.com/wochenlong/lora-scripts-next/releases)。

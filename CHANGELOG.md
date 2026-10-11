@@ -38,6 +38,7 @@
 
 ### 修复
 
+- **训练页 LyCORIS 参数在读取时被重置（#428）**：Anima 页面选择 LoKr / LoHa / T-LoRA 等算法后，刷新页面（草稿恢复）或导入配置会把 `lokr_factor`、`conv_dim`、`conv_alpha`、`dropout` 与 `network_module`/`lycoris_algo` 打回 LoRA 分支的默认值——导出的 TOML 一直是对的，只是表单读不回来。现在只按当前活跃的联合分支恢复这些字段；导入时也会把 `network_args` 里的 lycoris 参数（`factor`、`unit`、布尔开关等）正确映射回界面字段并做类型转换
 - **Anima Fast 引擎切换串台（#271）**：从 Kohya 切到 Anima Fast 时，不再把 `model_train_type=anima-lora` 与 Kohya 默认 `cache_*=true` 带进 Fast；提交时按页面 schema 强制 `anima-lora-fast`，避免静默启动 `anima_train_network.py`
 - 排队任务、插件安装任务不再误显示正在运行任务的 Loss 曲线 / 预览图；运维任务详情隐藏训练专属面板与 TensorBoard 入口
 - 已结束任务的 Loss / 预览数据窗口限定在其运行时段内，不再混入后续任务的数据（含同输出名复跑场景）
