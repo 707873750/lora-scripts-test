@@ -5,6 +5,10 @@
 ---
 ## 未发布（dev）
 
+### 修复
+
+- **训练页 LyCORIS 参数在读取时被重置（#428）**：Anima 页面选择 LoKr / LoHa / T-LoRA 等算法后，刷新页面（草稿恢复）或导入配置会把 `lokr_factor`、`conv_dim`、`conv_alpha`、`dropout` 与 `network_module`/`lycoris_algo` 打回 LoRA 分支的默认值——导出的 TOML 一直是对的，只是表单读不回来。现在只按当前活跃的联合分支恢复这些字段；导入时也会把 `network_args` 里的 lycoris 参数（`factor`、`unit`、布尔开关等）正确映射回界面字段并做类型转换
+
 ### 清理
 
 - **移除 legacy Gradio `dataset-tag-editor`**：删除 Git 子模块与 `:28001` 代理；数据集标签编辑仅保留 Vue 自研 `/dataset/editor`。旧 URL `/tageditor.html` 重定向到自研编辑器。
