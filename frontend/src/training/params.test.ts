@@ -109,9 +109,10 @@ describe("training parameter conversion", () => {
   })
 
   it("hydrates canonical argument lists for the GUI", () => {
-    expect(hydrateImportedConfig({ network_args: ["algo=loha", "factor=4"], optimizer_args: ["weight_decay=0.1"] })).toMatchObject({
+    expect(hydrateImportedConfig({ network_args: ["algo=loha", "factor=4", "use_cp=True"], optimizer_args: ["weight_decay=0.1"] })).toMatchObject({
       lycoris_algo: "loha",
-      factor: "4",
+      lokr_factor: 4,
+      use_cp: true,
       optimizer_args_custom: ["weight_decay=0.1"],
     })
   })
