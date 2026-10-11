@@ -259,26 +259,35 @@ export function createDefaultModel(schema: AdaptedSchema): FormModel {
 // always match the active schema; carry-over/autosave from another module may
 // otherwise leak a foreign value in (e.g. anima-lora into the krea2 page).
 export function applyReadonlyDefaults(schema: AdaptedSchema, model: FormModel, defaults: FormModel) {
-  const handled = new Set<string>()
+  const groups = new Map<string, FormField[]>()
   for (const field of schema.sections.flatMap((section) => section.fields)) {
-    if (handled.has(field.key)) continue
+    const list = groups.get(field.key)
+    if (list) list.push(field)
+    else groups.set(field.key, [field])
+  }
+  for (const [key, candidates] of groups) {
     // A hidden field controlled elsewhere in the UI is user state, not a lock.
     // Missing values use defaults; invalid explicit values remain for validation.
-    if (field.hidden && field.role === "external-control" && !field.disabled && field.type !== "const") {
-      handled.add(field.key)
-      if (model[field.key] === undefined && defaults[field.key] !== undefined) model[field.key] = cloneFormValue(defaults[field.key])
+    const externalControl = candidates.find((field) => field.hidden && field.role === "external-control" && !field.disabled && field.type !== "const")
+    if (externalControl) {
+      if (model[key] === undefined && defaults[key] !== undefined) model[key] = cloneFormValue(defaults[key])
       continue
     }
-    if (!(field.disabled || field.hidden || field.type === "const")) continue
-    // Only an *active* instance may force a value. Union branches repeat keys
-    // under different conditions (sd3-lora's LoRA branch hides lokr_factor /
-    // network_module / lycoris_algo), and the first instance in field order is
-    // not necessarily the active one — forcing it reset imported or autosaved
-    // LoKr settings back to the LoRA branch defaults.
-    if (!isFieldActive(field, model)) continue
-    handled.add(field.key)
-    const value = field.type === "const" ? field.constValue : defaults[field.key]
-    if (value !== undefined) model[field.key] = cloneFormValue(value)
+    const forceable = candidates.filter((field) => field.disabled || field.hidden || field.type === "const")
+    const active = candidates.find((candidate) => isFieldActive(candidate, model))
+    // Only an *active readonly* instance may force a value. Union branches repeat
+    // keys under different conditions (sd3-lora's LoRA branch hides lokr_factor /
+    // network_module / lycoris_algo), and the first instance in field order is not
+    // necessarily the active one — forcing it reset imported or autosaved LoKr
+    // settings back to the LoRA branch defaults.
+    // An active *visible* instance means the key is user state (lokr_factor on the
+    // LoKr branch) and must be left alone; with no active instance at all
+    // (foreign/unknown discriminator value) fall back to the first readonly
+    // instance so a foreign value cannot survive in the form model.
+    const field = active ? (forceable.includes(active) ? active : undefined) : forceable[0]
+    if (!field) continue
+    const value = field.type === "const" ? field.constValue : (field.defaultValue ?? defaults[key])
+    if (value !== undefined) model[key] = cloneFormValue(value)
   }
 }
 

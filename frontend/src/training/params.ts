@@ -244,6 +244,7 @@ const LYCORIS_NETWORK_ARG_TO_UI: Record<string, string> = {
   conv_dim: "conv_dim",
   conv_alpha: "conv_alpha",
   dropout: "dropout",
+  module_dropout: "module_dropout",
   unit: "dylora_unit",
   use_cp: "use_cp",
   use_scalar: "use_scalar",
@@ -259,6 +260,12 @@ const LYCORIS_BOOL_UI_FIELDS = new Set([
   "use_cp", "use_scalar", "decompose_both", "bypass_mode", "dora_wd",
   "full_matrix", "rank_dropout_scale", "train_norm",
 ])
+
+/** Mirrors mikazuki/utils/config_import._is_invalid_import_scalar: never turn
+ *  an "undefined"/"null"/empty arg into a form value. */
+function isInvalidLycorisArgValue(raw: string) {
+  return ["", "undefined", "null", "nan"].includes(raw.trim().toLowerCase())
+}
 
 function coerceLycorisArgValue(raw: string, asBool: boolean): FormValue {
   const value = raw.trim()
@@ -288,7 +295,7 @@ export function hydrateImportedConfig(source: FormModel) {
       if (!key) continue
       const uiField = LYCORIS_NETWORK_ARG_TO_UI[key]
       if (uiField) {
-        if (!hasFormValue(config[uiField])) {
+        if (!isInvalidLycorisArgValue(value) && !hasFormValue(config[uiField])) {
           config[uiField] = coerceLycorisArgValue(value, LYCORIS_BOOL_UI_FIELDS.has(uiField))
         }
         continue
