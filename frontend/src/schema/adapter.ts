@@ -259,18 +259,25 @@ export function createDefaultModel(schema: AdaptedSchema): FormModel {
 // always match the active schema; carry-over/autosave from another module may
 // otherwise leak a foreign value in (e.g. anima-lora into the krea2 page).
 export function applyReadonlyDefaults(schema: AdaptedSchema, model: FormModel, defaults: FormModel) {
-  const seen = new Set<string>()
+  const handled = new Set<string>()
   for (const field of schema.sections.flatMap((section) => section.fields)) {
-    if (seen.has(field.key)) continue
-    seen.add(field.key)
+    if (handled.has(field.key)) continue
     // A hidden field controlled elsewhere in the UI is user state, not a lock.
     // Missing values use defaults; invalid explicit values remain for validation.
     if (field.hidden && field.role === "external-control" && !field.disabled && field.type !== "const") {
+      handled.add(field.key)
       if (model[field.key] === undefined && defaults[field.key] !== undefined) model[field.key] = cloneFormValue(defaults[field.key])
       continue
     }
     if (!(field.disabled || field.hidden || field.type === "const")) continue
-    const value = defaults[field.key]
+    // Only an *active* instance may force a value. Union branches repeat keys
+    // under different conditions (sd3-lora's LoRA branch hides lokr_factor /
+    // network_module / lycoris_algo), and the first instance in field order is
+    // not necessarily the active one — forcing it reset imported or autosaved
+    // LoKr settings back to the LoRA branch defaults.
+    if (!isFieldActive(field, model)) continue
+    handled.add(field.key)
+    const value = field.type === "const" ? field.constValue : defaults[field.key]
     if (value !== undefined) model[field.key] = cloneFormValue(value)
   }
 }
