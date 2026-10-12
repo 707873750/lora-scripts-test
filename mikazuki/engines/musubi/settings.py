@@ -128,26 +128,6 @@ def _usable_source(path: Path, commit: str | None) -> bool:
     return _commit_available(path, commit)
 
 
-def _commit_available(path: Path, commit: str) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
-def _usable_source(path: Path, commit: str | None) -> bool:
-    """Package tree +, when a commit is pinned, either a git checkout that
-    actually has the commit or a snapshot whose .source_commit matches."""
-    if not _has_package_tree(path):
-        return False
-    if not commit:
-        return True
-    if not (path / ".git").exists():
-        return snapshot_matches(path, commit)
-    return _commit_available(path, commit)
-
-
 def resolve_install_source_root(
     project_root: Path,
     explicit: Path | None = None,

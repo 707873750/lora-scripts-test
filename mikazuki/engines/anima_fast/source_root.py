@@ -45,14 +45,6 @@ def _commit_available(path: Path, commit: str) -> bool:
     return result.returncode == 0
 
 
-def _commit_available(path: Path, commit: str) -> bool:
-    result = subprocess.run(
-        ["git", "-C", str(path), "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}"],
-        capture_output=True,
-    )
-    return result.returncode == 0
-
-
 def _usable_git_source(path: Path, source_commit: str | None) -> bool:
     if not _has_train_py(path):
         return False

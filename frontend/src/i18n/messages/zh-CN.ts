@@ -817,11 +817,6 @@ export default {
           summary: "可选训练引擎（ostris/ai-toolkit），支持 SDXL、Flux、Klein、Krea 2、Anima、Qwen Image 2.1 LoRA。",
           sizeHint: "体积较大（通常数 GB），需额外磁盘与下载时间",
         },
-        "ai-toolkit": {
-          name: "AI Toolkit",
-          summary: "可选训练引擎（ostris/ai-toolkit），支持 FLUX.2 Klein 等图像模型 LoRA。",
-          sizeHint: "体积较大（通常数 GB），需额外磁盘与下载时间",
-        },
       },
       state: {
         ready: "已就绪",

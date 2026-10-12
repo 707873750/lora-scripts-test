@@ -1,4 +1,4 @@
-# LoRA train script by @wochenlong (Next Trainer; lineage credit: Akegarasu/lora-scripts)
+# LoRA train script by @wochenlong (forked from @Akegarasu)
 # 旁路 CLI：不支持 Anima。Anima / T-LoRA 请用 WebUI (run_gui.bat)。
 
 # Train data path | 设置训练用模型、图片

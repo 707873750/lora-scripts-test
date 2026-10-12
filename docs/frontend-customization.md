@@ -4,7 +4,7 @@
 
 训练 GUI 后端默认加载 `frontend/dist`。该目录是 `hanamizuki-ai/lora-gui-dist` 这个预编译 submodule，并不是前端源码——本仓库内没有 `package.json` 也没有前端构建步骤。
 
-"Anima LoRA" 页面并不在 dist 里，而是由 `mikazuki/schema/sd3-lora.ts` 渲染出来的：本仓库把这份 schema 改写成了 Anima 配置，后端把它喂给 UI，表单就跟着重新渲染了。
+"Anima LoRA" 页面并不在 dist 里，而是由 `mikazuki/schema/sd3-lora.ts` 渲染出来的：本 fork 把这份 schema 改写成了 Anima 配置，后端把它喂给原版 UI，表单就跟着重新渲染了。
 
 ## 自定义前端
 

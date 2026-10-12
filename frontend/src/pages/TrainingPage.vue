@@ -222,16 +222,6 @@ function updateModel(next: FormModel) {
   model.value = schema.value ? normalizeModelForSchema(schema.value, next) : next
 }
 
-function resolveEffectiveDefaults(loaded: AdaptedSchema) {
-  const defaults = createDefaultModel(loaded)
-  for (const [key, value] of Object.entries(props.fieldDefaults || {})) defaults[key] = cloneFormValue(value)
-  return defaults
-}
-
-function updateModel(next: FormModel) {
-  model.value = schema.value ? normalizeModelForSchema(schema.value, next) : next
-}
-
 function validate() {
   if (!schema.value) return false
   errors.value = validateModel(schema.value, model.value)

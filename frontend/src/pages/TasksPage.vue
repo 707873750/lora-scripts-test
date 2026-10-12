@@ -17,8 +17,6 @@ import { taskArchivesApi, type TaskArchive } from "../api/taskArchives"
 
 const router = useRouter()
 
-const router = useRouter()
-
 const store = useTasksStore()
 const { tasks, loading, error, terminatingId } = storeToRefs(store)
 const { t } = useI18n()
@@ -671,102 +669,6 @@ async function loadArchive() {
     ElMessage.error(caught instanceof Error ? caught.message : t("tasks.archives.loadFail"))
   } finally {
     archiveBusy.value = false
-  }
-}
-
-function isTerminal(task: TrainingTask): boolean {
-  return task.status === "FINISHED" || task.status === "FAILED" || task.status === "TERMINATED"
-}
-
-async function removeTask(task: TrainingTask) {
-  try {
-    await ElMessageBox.confirm(t("tasks.deleteTask.confirm", { id: task.id }), t("tasks.deleteTask.title"), {
-      confirmButtonText: t("tasks.deleteTask.confirmButton"),
-      cancelButtonText: t("tasks.terminate.cancel"),
-      type: "warning",
-    })
-    actionBusyId.value = task.id
-    await tasksApi.remove(task.id)
-    await store.refresh({ silent: true })
-    ElMessage.success(t("tasks.deleteTask.success"))
-  } catch (caught) {
-    if (caught !== "cancel" && caught !== "close") {
-      ElMessage.error(caught instanceof Error ? caught.message : t("tasks.deleteTask.fail"))
-    }
-  } finally {
-    actionBusyId.value = ""
-  }
-}
-
-const purgeOpen = ref(false)
-const purgeKeepLast = ref(10)
-const purgeBusy = ref(false)
-
-async function purgeTasks() {
-  purgeBusy.value = true
-  try {
-    const result = await tasksApi.purge(purgeKeepLast.value)
-    await store.refresh({ silent: true })
-    purgeOpen.value = false
-    ElMessage.success(t("tasks.purge.success", { n: result.removed }))
-  } catch (caught) {
-    ElMessage.error(caught instanceof Error ? caught.message : t("tasks.purge.fail"))
-  } finally {
-    purgeBusy.value = false
-  }
-}
-
-async function importToTraining(task: TrainingTask) {
-  actionBusyId.value = task.id
-  try {
-    const data = await tasksApi.config(task.id)
-    sessionStorage.setItem("mikazuki-pending-import", JSON.stringify(data.config))
-    const targetModule = moduleForTrainType(data.train_type)
-    if (targetModule) await router.push({ path: "/training", query: { model: targetModule.model, engine: targetModule.engine, target: targetModule.target } })
-    else await router.push("/training")
-  } catch (caught) {
-    sessionStorage.removeItem("mikazuki-pending-import")
-    ElMessage.error(caught instanceof Error ? caught.message : t("tasks.importTrain.fail"))
-  } finally {
-    actionBusyId.value = ""
-  }
-}
-
-async function fetchTaskToml(task: TrainingTask) {
-  const data = await tasksApi.config(task.id)
-  const name = String(data.output_name || data.config.output_name || task.id)
-  return { tomlText: stringify(data.config), name }
-}
-
-async function exportTaskConfig(task: TrainingTask) {
-  actionBusyId.value = task.id
-  try {
-    const { tomlText, name } = await fetchTaskToml(task)
-    const blob = new Blob([tomlText], { type: "application/toml;charset=utf-8" })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = `${name}.toml`
-    anchor.click()
-    URL.revokeObjectURL(url)
-    ElMessage.success(t("tasks.exportConfig.success"))
-  } catch (caught) {
-    ElMessage.error(caught instanceof Error ? caught.message : t("tasks.exportConfig.fail"))
-  } finally {
-    actionBusyId.value = ""
-  }
-}
-
-async function copyTaskConfig(task: TrainingTask) {
-  actionBusyId.value = task.id
-  try {
-    const { tomlText } = await fetchTaskToml(task)
-    await copyText(tomlText)
-    ElMessage.success(t("tasks.exportConfig.copied"))
-  } catch (caught) {
-    ElMessage.error(caught instanceof Error ? caught.message : t("tasks.exportConfig.copyFail"))
-  } finally {
-    actionBusyId.value = ""
   }
 }
 

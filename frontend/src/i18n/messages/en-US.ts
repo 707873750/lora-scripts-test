@@ -817,11 +817,6 @@ export default {
           summary: "Optional engine (ostris/ai-toolkit) for SDXL, Flux, Klein, Krea 2, Anima and Qwen Image 2.1 LoRA.",
           sizeHint: "Large download (usually several GB); extra disk space and download time required",
         },
-        "ai-toolkit": {
-          name: "AI Toolkit",
-          summary: "Optional engine (ostris/ai-toolkit) for FLUX.2 Klein LoRA and more image models.",
-          sizeHint: "Large download (usually several GB); extra disk space and download time required",
-        },
       },
       state: {
         ready: "Ready",
