@@ -930,6 +930,8 @@ export default {
       vue: "Vue 3 训练工作区",
       models: "Stable Diffusion · Flux · Anima",
     },
+    portableAnimaTip:
+      "2026 整合包：根目录只有「启动 / 检查更新 / 说明」。一键下载 Anima 底模请到 tools\\Download-Anima-Model.bat（不要在根目录找）。",
     credit: "感谢 Akegarasu/lora-scripts 与 kohya-ss/sd-scripts 等开源项目；完整致谢与许可见 {about} / {notice}。",
     portals: {
       training: { title: "训练", text: "基础模型 × 训练引擎 × 训练目标，一处完成配置与提交。" },
