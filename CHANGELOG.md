@@ -3,7 +3,13 @@
 本文件记录 **wochenlong/lora-scripts-next**（产品名 **Next Trainer**）面向镜像与 AutoDL 的发行说明；上游 kohya-ss/sd-scripts 的变更请见其仓库。
 
 ---
-## v3.2.0 — 2026-10-11
+## 未发布
+
+### 修复
+
+- **DiffSynth 指纹不再包含 mtime（#410）**：目录拷贝、云镜像打包、解压或启动脚本触碰文件都会改写时间戳，导致可用环境被误报「环境或源码已变化」并要求重装（AutoDL 定制镜像上会反复复发）。指纹改为**内容哈希**（`content-v2`）并持久化方案标记：时间戳变化不再误报，旧状态**一次性迁移**（不要求重装），内容真的被改动、训练入口/独立 Python 缺失时仍会正确报错。
+  - **预装 DiffSynth 的定制镜像需要同步这两个文件后重建镜像才生效**：`mikazuki/engines/diffsynth/extension_state.py`、`mikazuki/engines/diffsynth/install_worker.py`；只更新 `install_state.json` 不算修复（下次时间戳再变还会复发）。
+
 
 ### 整合包更新修复
 
