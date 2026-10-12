@@ -19,6 +19,7 @@ from mikazuki.download_sources import (
     pytorch_extra_index_url,
 )
 from mikazuki.engines.portable_venv import read_venv_home, relocate_venv_home, venv_base_missing
+from mikazuki.networking import redact
 from mikazuki.tasks import LANE_MAINTENANCE, tm
 from mikazuki.train_log_hub import hub as train_log_hub
 
@@ -35,15 +36,15 @@ from .settings import RuntimeConfig, ensure_install_source_ready, load_backend_c
 
 
 IMPORT_PROBE = (
-    "import torch;"
-    "import sys, platform;"
-    "import importlib.util;"
+    "import torch, platform;"
+    "import diffusers, torchaudio;"
+    "import toolkit.config_modules;"
     "print(platform.python_version());"
     "print(torch.__version__);"
     "print(torch.cuda.is_available());"
-    "print(importlib.util.find_spec('toolkit') is not None);"
-    "print(importlib.util.find_spec('diffusers') is not None);"
-    "print(importlib.util.find_spec('torchaudio') is not None)"
+    "print(True);"
+    "print(True);"
+    "print(True)"
 )
 
 # Upstream requires Python 3.11 (dgx_instructions.md).
@@ -186,11 +187,8 @@ def probe_env(runtime: RuntimeConfig) -> dict[str, str]:
     env = os.environ.copy()
     env["PYTHONNOUSERSITE"] = "1"
     src = str(runtime.toolkit_root.resolve())
-    existing = env.get("PYTHONPATH", "")
-    parts = [p for p in existing.split(os.pathsep) if p]
-    if src not in parts:
-        parts.insert(0, src)
-    env["PYTHONPATH"] = os.pathsep.join(parts)
+    env.pop("PYTHONHOME", None)
+    env["PYTHONPATH"] = src
     return env
 
 
@@ -205,6 +203,15 @@ def audit_environment(
         "toolkit_root": str(runtime.toolkit_root),
         "python": str(runtime.python),
     }
+    from .manifest import UPSTREAM
+    from mikazuki.engines.vendor_bundle import snapshot_commit
+    recorded_commit = snapshot_commit(runtime.toolkit_root)
+    facts['source_commit'] = recorded_commit
+    facts['expected_commit'] = UPSTREAM['commit']
+    if recorded_commit and recorded_commit != UPSTREAM['commit']:
+        errors.append('AI Toolkit 源码版本已过期，请在设置中重新安装当前固定版本：' + UPSTREAM['commit'])
+    elif not recorded_commit:
+        warnings.append('AI Toolkit 源码没有 .source_commit 标记，无法核实版本；建议使用引擎安装器')
 
     if not ((runtime.toolkit_root / "run.py").is_file() and (runtime.toolkit_root / "toolkit").is_dir()):
         errors.append(
@@ -222,6 +229,7 @@ def audit_environment(
             result = subprocess.run(
                 [str(runtime.python), "-c", IMPORT_PROBE],
                 env=probe_env(runtime),
+                cwd=str(runtime.toolkit_root),
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 timeout=180,
@@ -236,7 +244,7 @@ def audit_environment(
             lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
             if result.returncode != 0 or len(lines) < 6:
                 tail = " | ".join(lines[-3:]) if lines else "<no output>"
-                errors.append(f"ai-toolkit 依赖自检失败（import torch/toolkit）：{tail}")
+                errors.append(f"ai-toolkit 依赖自检失败（import torch/diffusers/torchaudio/toolkit.config_modules）：{tail}")
             else:
                 facts["python_version"] = lines[-6]
                 facts["torch_version"] = lines[-5]
@@ -296,7 +304,7 @@ def build_environment_install_plan(
 
 
 def _append(log: LogFn, line: str) -> None:
-    log(line)
+    log(redact(line))
 
 
 def _emit_progress(progress: ProgressFn | None, phase: str, message: str, percent: int | None = None, **extra) -> None:
@@ -316,7 +324,7 @@ def _emit_progress(progress: ProgressFn | None, phase: str, message: str, percen
 
 
 def _run_streaming_once(command: list[str], cwd: Path, log: LogFn, env: dict[str, str] | None = None) -> None:
-    _append(log, "[cmd] " + " ".join(command))
+    _append(log, "[cmd] " + redact(" ".join(command)))
     merged_env = os.environ.copy()
     if env:
         merged_env.update(env)
@@ -596,7 +604,7 @@ def start_install_task(
 
     def runner() -> None:
         def log(line: str) -> None:
-            train_log_hub.append_line(task_id, line)
+            train_log_hub.append_line(task_id, redact(line))
 
         def progress(event: dict) -> None:
             train_log_hub.append_event(task_id, event)
@@ -608,11 +616,22 @@ def start_install_task(
             task.finish_log_only(0 if result.ok else 1, None if result.ok else "; ".join(result.errors))
         except (Exception, KeyboardInterrupt) as exc:  # install failures must become observable state
             facts = {"plan": plan.as_dict(), "phase": "failed", "task_id": task_id}
-            write_install_state(plan.layout, STATE_BROKEN, facts, str(exc))
+            write_install_state(plan.layout, STATE_BROKEN, facts, redact(exc))
             log(f"[error] {exc}")
-            task.finish_log_only(1, exc)
+            task.finish_log_only(1, RuntimeError(redact(exc)))
 
-    threading.Thread(target=runner, daemon=True).start()
+    def network_runner():
+        from mikazuki.networking.policy import task_policy
+        try:
+            with task_policy():
+                runner()
+        except Exception as exc:
+            message = redact(exc)
+            write_install_state(plan.layout, STATE_BROKEN, {"task_id": task_id}, message)
+            train_log_hub.append_line(task_id, f"[network-error] {message}")
+            task.finish_log_only(1, RuntimeError(message))
+
+    threading.Thread(target=network_runner, daemon=True).start()
     return task_id, {
         "task_id": task_id,
         "plan": plan.as_dict(),

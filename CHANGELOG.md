@@ -2,74 +2,44 @@
 
 本文件记录 **wochenlong/lora-scripts-next**（产品名 **Next Trainer**）面向镜像与 AutoDL 的发行说明；上游 kohya-ss/sd-scripts 的变更请见其仓库。
 
+> 当前开发版的功能进展与限制见 [开发进展](docs/dev-progress.md)，未来目标见 [路线图](docs/roadmap.md)。下方历史版本中的分支、下载和发布时间说明属于当时记录，不代表当前状态。
+
 ---
 ## 未发布（dev）
 
-### 修复
+### 整合包更新修复
 
-- **训练页 LyCORIS 参数在读取时被重置（#428）**：Anima 页面选择 LoKr / LoHa / T-LoRA 等算法后，刷新页面（草稿恢复）或导入配置会把 `lokr_factor`、`conv_dim`、`conv_alpha`、`dropout` 与 `network_module`/`lycoris_algo` 打回 LoRA 分支的默认值——导出的 TOML 一直是对的，只是表单读不回来。现在只按当前活跃的联合分支恢复这些字段；导入时也会把 `network_args` 里的 lycoris 参数（`factor`、`unit`、布尔开关等）正确映射回界面字段并做类型转换
+- **修复 Git 更新收走模型和训练集（#356）**：停止自动 stash，自动补齐旧包缺失的程序文件；新包保留完整浅克隆工作树，并在打包前执行数据保留测试。已经受影响的用户请保留整个旧目录（含 `.git`），参见 [恢复说明](https://github.com/wochenlong/lora-scripts-next/issues/356)。
+
+### Musubi-tuner 新增 Ideogram 4（#424）
+
+- Musubi 引擎支持 **Ideogram 4 LoRA**：训练页新增模型入口（`/lora/ideogram4.html`），三阶段任务（缓存 latents → 缓存文本编码器输出 → 训练）与任务队列、日志、预览沿用现有能力
+- 组件只发**量化权重（FP8）**、许可为 **非商用**，整合包不预置；「训练用模型」区提供 conditional / unconditional DiT、Qwen3-VL-8B 文本编码器、Flux2 VAE 与 tokenizer 的清单与下载入口
+- 上游快照补丁：修正文本编码器 rotary embedding 在 `to_empty()` 后未初始化的问题（上游 v0.3.6 修复），并把 tokenizer 指向本地目录，离线可用
+- 引擎能力、预检与配置导入识别 `ideogram4-lora`（跨页导入自动跳转到对应训练页），详见 [Ideogram 4 训练指南](docs/ideogram4-musubi.md)
+
+### 数据集标签编辑（#423）
+
+- **编辑页重做**：默认只展示图片墙，选中图片后才展开编辑面板
+- **两种编辑模式**：「标签编辑」按中英文逗号与英文句号切分标签逐条增删；「自由编辑」直接编辑原始标注文本；两者都支持批量操作与历史记录
+- **离线中文释义**：内置 Danbooru 中文词典（约 33 万条），首次启用时自动下载，之后无需联网即可译出中文；翻译来源精简为「词库 / 本地模型 / API」，结果本地缓存
+- 整合包与便携版构建默认预置该词典，预取失败不影响主流程
+- 数据集管理支持**重命名**：目标已存在或目录被瞬时占用时返回 409 冲突，不再以 400 报笼统错误
+
+### 设置结构调整
+
+- 设置页顺序调整为 **UI 设置 → 训练引擎 → API → 插件市场 → 高级设置 → 关于**
+- 新增「API」页：集中管理接口配置与本地翻译模型（安装、启停与缓存清理），供数据集打标等页面复用，打标页只需选择翻译来源
+- 「高级设置」收纳网络设置与下载源管理；「关于」合并项目介绍、更新与更新日志
 
 ### 清理
 
 - **移除 legacy Gradio `dataset-tag-editor`**：删除 Git 子模块与 `:28001` 代理；数据集标签编辑仅保留 Vue 自研 `/dataset/editor`。旧 URL `/tageditor.html` 重定向到自研编辑器。
 
----
-## v3.1.3 — 2026-10-09
-
-> 版本号已确定；正式 tag、整合包构建与上传另行安排。
-
-- **整合包引擎 venv 自愈（#406 / #411）**：Musubi / AI Toolkit 打包 venv 若 `pyvenv.cfg` 仍指向构建机解释器，状态检查、预检与安装/修复会迁移到包内 `.python`，避免解压后 “No Python at ...”。
-- **Anima 2B / 2.9B 规格选择（#394）**：训练表单可选模型规格，并按规格记忆底模路径；导入配置时保留路径记忆。
-- 继承 3.1.2：Kohya 独立引擎、默认训练引擎偏好。
-
----
-## v3.1.2 — 2026-10-09
-
-> 版本号已确定；正式 tag、整合包构建与上传另行安排。
-
-- **Kohya 独立引擎**：Kohya 从 GUI 内置运行时拆出，可在「设置 → 训练引擎」中安装、修复与卸载；卸载仅清理 `extensions/kohya`，不触碰 GUI Python / Torch。
-- **默认训练引擎偏好**：支持配置默认引擎，以及记住上次使用的引擎（#404）。
-- 升级后首次使用 Kohya 训练前需先安装 Kohya 引擎。
-
----
-## v3.1.1 — 2026-09-22
-
-> 版本号已确定；正式 tag、整合包构建与上传另行安排。
-
-- 新增 **DiffSynth / Qwen-Image-2.1 BF16 文生图 LoRA**，提供独立引擎安装、检查、修复与卸载。
-- 支持完整模型目录或分别指定 Comfy-Org BF16 组件，以及图片 + TXT、Kohya 风格重复目录和原生元数据。
-- 支持 TE/VAE 编码缓存、CPU 卸载、分桶、学习率调度及训练中间隔预览；缓存预览复用训练 DiT，避免额外加载一份模型。
-- 已完成 RTX 4090 两种 CPU 卸载配置短训、预览后继续训练和保存，以及独立 ComfyUI LoRA 回载出图验证。详见 [验收记录](docs/team/diffsynth-main-acceptance.md)。
-- 首版不包含图像编辑、量化训练、全量微调或完整优化器状态恢复；功能短训不等于长训画质验收。
-
----
-## v3.1.0 — 2026-09-18
-
-> **正式版候选**：本节随 `dev` 发布基线进入 `main`。合并代码不等于立即发布整合包；正式 tag、便携包构建与上传仍需完成发布验收。
-
-### 引擎与训练
-
-- **Anima Fast 更新**：同步上游 v1.17.1，支持 Anima 2.9B 与 T-LoRA，并补齐 Windows Triton、DGX Spark flash-attn、ComfyUI 布局检查点及安装进度可观测性
-- **Anima Fast 安全与兼容修复**：禁止已知危险的 torch compile / 文本编码器组合，默认优化器改为 `AdamW`，明确训练步数与 epoch 的互斥优先级，并修复数据集增长后的缩放缓存刷新
-- **统一训练引擎注册表**：Kohya、Anima Fast、Musubi 与 AI Toolkit 使用一致的 manifest / route / runner 接口
-- **AI Toolkit / Klein**：新增独立引擎环境、安装、预检、配置转换与训练入口
-
-### 产品与扩展
-
-- **插件市场与插件宿主**：支持签名校验、断点续传、持久缓存、更新复用、运行时监管与权限确认
-- **Pi Agent 插件**：接入数据集、训练指标、产物与知识能力，提供 Windows / Linux 双平台包流程
-- **任务工作台**：补齐任务详情、维护任务、日志与训练状态展示，并修复辅助进程生命周期问题
-
 ### 修复
 
-- **全新安装假报成功（#319）**：`install-cn.ps1` / `install.ps1` 不再在空 venv 上打印「安装完成」；升级 pip、探测 `--resume-retries`，安装结束检查 `import torch`，源码启动在无 torch 时拒绝进入 GUI
-- **TOML 子集静默漏训（#332）**：提交带 `dataset_config` 时不再自动把 `train_data_dir` 里的散图搬进 `N_xxx/`；空子集会直接拒绝开训，而不是让 sd-scripts 跳过仍显示训练成功；`num_repeats < 1` 与重复的 `image_dir` / `metadata_file` 子集同样在提交时拒绝
-- **整合包 Git 更新收走用户数据（#356 / #358）**：停止自动 `stash -u`，快进后补齐旧包缺失的跟踪文件；新包使用完整浅克隆。已被旧更新器收进 stash 的数据不自动弹出，见 [恢复说明](https://github.com/wochenlong/lora-scripts-next/issues/356)
-- 修复 Accelerate 多 GPU 启动参数拆分
-- 修复 LyCORIS / LoKr dtype 与权重合并问题
-- 修复 Automagic 恢复训练时的优化器状态
-- 改进 Windows 路径、安装错误提示与插件运行时恢复
-
+- **回补 main 线的数据集配置守卫**：提交前校验 `dataset_config`，拒绝 `num_repeats < 1` 以及重复的 `image_dir` / `metadata_file`——这类子集会被 sd-scripts 静默跳过，出现「任务正常完成、却只训了部分数据」的情况
+- **训练页 LyCORIS 参数在读取时被重置（#428）**：Anima 页面选择 LoKr / LoHa / T-LoRA 等算法后，刷新页面（草稿恢复）或导入配置会把 `lokr_factor`、`conv_dim`、`conv_alpha`、`dropout` 与 `network_module`/`lycoris_algo` 打回 LoRA 分支的默认值——导出的 TOML 一直是对的，只是表单读不回来。现在只按当前活跃的联合分支恢复这些字段；导入时也会把 `network_args` 里的 lycoris 参数（`factor`、`unit`、布尔开关等）正确映射回界面字段并做类型转换
 - **Anima Fast 引擎切换串台（#271）**：从 Kohya 切到 Anima Fast 时，不再把 `model_train_type=anima-lora` 与 Kohya 默认 `cache_*=true` 带进 Fast；提交时按页面 schema 强制 `anima-lora-fast`，避免静默启动 `anima_train_network.py`
 - 排队任务、插件安装任务不再误显示正在运行任务的 Loss 曲线 / 预览图；运维任务详情隐藏训练专属面板与 TensorBoard 入口
 - 已结束任务的 Loss / 预览数据窗口限定在其运行时段内，不再混入后续任务的数据（含同输出名复跑场景）

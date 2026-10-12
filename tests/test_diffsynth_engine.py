@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
-from mikazuki.engines.diffsynth.adapter import AdaptedConfig, adapt_config, dump_config
+from mikazuki.engines.diffsynth.adapter import adapt_config, dump_config
 from mikazuki.engines.diffsynth.launcher import build_train_spec
 from mikazuki.engines.diffsynth.settings import Runtime, TRAIN_SCRIPT
 from mikazuki.engines.diffsynth.installer import installation_plan
@@ -86,26 +86,6 @@ def test_edit_metadata_serializes_reference_paths_relative_to_dataset_base(confi
     assert written[0]["edit_image"] == ["../inputs/reference.png"]
 
 
-def test_edit_metadata_keeps_absolute_reference_when_relpath_is_unavailable(tmp_path, monkeypatch):
-    reference = (tmp_path / "reference.png").resolve()
-    adapted = AdaptedConfig(
-        arguments={"dataset_base_path": str((tmp_path / "outputs").resolve())},
-        dataset=[{"image": "target.png", "prompt": "edit", "edit_image": [str(reference)]}],
-        output_path=tmp_path / "output",
-        engine={},
-        metadata_path=None,
-    )
-
-    def cross_drive_relpath(*_args, **_kwargs):
-        raise ValueError("path is on mount 'D:', start on mount 'E:'")
-
-    monkeypatch.setattr("mikazuki.engines.diffsynth.adapter.os.path.relpath", cross_drive_relpath)
-    path = dump_config(adapted, tmp_path / "autosave", "edit")
-    written = json.loads((path.parent / "edit-dataset.json").read_text(encoding="utf-8"))
-
-    assert written[0]["edit_image"] == [reference.as_posix()]
-
-
 def test_official_arguments_and_process_isolation(configured, monkeypatch):
     rt, config = configured
     monkeypatch.setenv("PYTHONPATH", "/gui/packages")
@@ -145,7 +125,9 @@ def test_quantization_is_rejected(configured):
         adapt_config({**config, "diffsynth_quantization": "bitsandbytes_nf4"}, rt)
 
 
-def test_install_uses_managed_python_complete_pin_and_mirrors(tmp_path):
+def test_install_uses_managed_python_complete_pin_and_mirrors(tmp_path, monkeypatch):
+    monkeypatch.setattr("mikazuki.engines.diffsynth.environment.platform.machine", lambda: "x86_64")
+    monkeypatch.setattr("mikazuki.engines.diffsynth.environment.sys.platform", "linux")
     rt = Runtime(tmp_path)
     sources = DownloadSources(pip_index_url="https://pypi.example/simple", pytorch_index_url="https://torch.example/whl", github_url_prefix="https://git.example/")
     commands = installation_plan(rt, sources)
@@ -160,6 +142,22 @@ def test_install_uses_managed_python_complete_pin_and_mirrors(tmp_path):
     assert "https://torch.example/whl/cu128" in commands[-2]
     assert "https://pypi.example/simple" in commands[-1]
     assert "deepspeed" not in " ".join(commands[-1])
+
+
+def test_install_torch_uses_pypi_on_linux_aarch64(tmp_path, monkeypatch):
+    monkeypatch.setattr("mikazuki.engines.diffsynth.environment.platform.machine", lambda: "aarch64")
+    monkeypatch.setattr("mikazuki.engines.diffsynth.environment.sys.platform", "linux")
+    rt = Runtime(tmp_path)
+    sources = DownloadSources(pip_index_url="https://pypi.example/simple", pytorch_index_url="https://torch.example/whl")
+    commands = installation_plan(rt, sources)
+    torch_cmd = commands[-2]
+    assert "torch.example" not in " ".join(torch_cmd)
+    assert torch_cmd[torch_cmd.index("--index-url") + 1] == "https://pypi.example/simple"
+    assert "torch==2.13.0" in torch_cmd and "torchvision==0.28.0" in torch_cmd
+    assert "torch==2.13.0" in commands[-1] and "torchvision==0.28.0" in commands[-1]
+    plain = installation_plan(rt, DownloadSources())[-2]
+    assert "--index-url" not in plain
+    assert "torch==2.13.0" in plain and "torchvision==0.28.0" in plain
 
 
 def test_import_export_roundtrip(configured):

@@ -428,6 +428,12 @@ onMounted(() => void load())
               {{ formatBytes(installOp.progress.current) }} / {{ formatBytes(installOp.progress.total) }}
             </span>
           </div>
+          <p v-if="installOp.network" role="status">
+            {{ installOp.network.proxy_enabled ? t('network.viaProxy') : t('network.direct') }}
+            · {{ installOp.network.source }}
+            <span v-if="installOp.network.attempt"> · {{ t('network.attempt') }} {{ installOp.network.attempt }}/{{ installOp.network.max_attempts }}</span>
+            <span v-if="installOp.network.speed_bytes_per_second != null"> · {{ formatBytes(installOp.network.speed_bytes_per_second) }}/s</span>
+          </p>
           <el-progress
             v-if="installOp.state === 'running'"
             :percentage="installOp.progress.percent ?? 0"
