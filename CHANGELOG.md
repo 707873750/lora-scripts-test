@@ -13,6 +13,7 @@
 - **Krea2 tokenizer 的 `extra_special_tokens` 为 list 时加载失败（#416）**：探测/下载/启动前会把旧的 list 形态规范化为 transformers 期望的 mapping（`{"additional_special_tokens": [...]}`），手动放置的 tokenizer 同样会被治好；已是 mapping 的配置不动，坏 JSON 安全跳过。
 - **Kohya 加载 Anima 2.9B 前明确拦截（#408）**：`validate_model` 只读 safetensors 头部统计 DiT block 数，超过 28 即拒绝并提示「请改用 Anima Fast（设置 → 训练引擎 安装），或改用 Anima 2B」，不再等到加载时抛一串 `blocks.28.*` 权重名；2B 与 Anima Fast 路径不受影响，坏文件/无法识别不会被误判。
 - **标签编辑的「选择已有数据集」弹窗为空（#440）**：`ManagedDatasetPicker` 现在会监听受控的 `open` 属性（标签编辑隐藏内部按钮、直接控制弹窗），弹窗打开时执行与内部按钮相同的初始化并拉取数据集列表；关闭后重开正常刷新，`browse()` 的 generation 机制继续防止并发响应覆盖
+- **训练引擎下拉显示安装状态（#443）**：每个引擎带状态后缀（已就绪 / 未安装 / 需修复 / 安装中 / 已停用 / 未验证），模型不支持的引擎继续灰显并保留「该模型暂不支持」提示，另加一条可操作提示列出「当前模型支持但未安装/待修复」的引擎；引擎状态接口失败时静默降级为纯引擎名
 
 
 ### 整合包更新修复
