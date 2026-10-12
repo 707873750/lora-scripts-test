@@ -147,6 +147,7 @@ onBeforeUnmount(stopAutoplay)
       <span>{{ t("home.status.vue") }}</span>
       <span>{{ t("home.status.models") }}</span>
     </section>
+    <p class="home-portable-tip">{{ t("home.portableAnimaTip") }}</p>
     <p class="home-credit">
       <i18n-t keypath="home.credit" tag="span" scope="global">
         <template #about><RouterLink to="/settings/about">{{ t("settings.nav.about") }}</RouterLink></template>

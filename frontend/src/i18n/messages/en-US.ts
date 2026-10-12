@@ -930,6 +930,8 @@ export default {
       vue: "Vue 3 training workspace",
       models: "Stable Diffusion · Flux · Anima",
     },
+    portableAnimaTip:
+      "2026 portable: root only has Launch / Check updates / Readme. Download Anima base weights via tools\\Download-Anima-Model.bat (not at package root).",
     credit: "With thanks to Akegarasu lora-scripts, kohya-ss/sd-scripts, and other open-source projects. Full credits and licenses: {about} / {notice}.",
     portals: {
       training: { title: "Training", text: "Base model × engine × target — configure and submit in one place." },

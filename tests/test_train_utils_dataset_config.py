@@ -198,3 +198,109 @@ def test_validate_dataset_config_rejects_missing_file(tmp_path):
 
     assert ok is False
     assert "nope.toml" in message
+
+
+def _write_toml_config(path: Path, subsets) -> Path:
+    payload = {
+        "general": {"shuffle_caption": False},
+        "datasets": [{"resolution": 1024, "subsets": subsets}],
+    }
+    path.write_text(toml.dumps(payload), encoding="utf-8")
+    return path
+
+
+def test_validate_dataset_config_rejects_num_repeats_below_one(tmp_path):
+    """sd-scripts logs one warning and ignores the whole subset when
+    num_repeats < 1, so the subset silently never trains."""
+    train = _make_flat_dataset(tmp_path / "train")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml", [{"image_dir": str(train), "num_repeats": 0}]
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok is False
+    assert "num_repeats" in message
+
+
+def test_validate_dataset_config_rejects_boolean_false_num_repeats(tmp_path):
+    """TOML ``num_repeats = false`` parses to 0 and is silently skipped too."""
+    train = _make_flat_dataset(tmp_path / "train")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml", [{"image_dir": str(train), "num_repeats": False}]
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok is False
+    assert "num_repeats" in message
+
+
+def test_validate_dataset_config_rejects_duplicated_image_dir(tmp_path):
+    """sd-scripts keeps the first subset with a given image_dir and silently
+    ignores later ones, no matter what else differs."""
+    train = _make_flat_dataset(tmp_path / "train")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml",
+        [
+            {"image_dir": str(train), "num_repeats": 1},
+            {"image_dir": str(train), "num_repeats": 5},
+        ],
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok is False
+    assert "重复" in message
+
+
+def test_validate_dataset_config_rejects_duplicated_metadata_file(tmp_path):
+    meta = tmp_path / "meta.json"
+    meta.write_text("{}", encoding="utf-8")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml",
+        [
+            {"metadata_file": str(meta)},
+            {"metadata_file": str(meta)},
+        ],
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok is False
+    assert "重复" in message
+
+
+def test_validate_dataset_config_skipped_subset_cannot_shadow_duplicate(tmp_path):
+    """sd-scripts registers only subsets that survive the num_repeats check, so
+    a subset skipped for num_repeats=0 does not make its twin a duplicate; the
+    report must blame num_repeats, not duplication."""
+    train = _make_flat_dataset(tmp_path / "train")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml",
+        [
+            {"image_dir": str(train), "num_repeats": 0},
+            {"image_dir": str(train), "num_repeats": 1},
+        ],
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok is False
+    assert "num_repeats" in message
+    assert "重复子集" not in message
+
+
+def test_validate_dataset_config_accepts_distinct_dirs_without_num_repeats(tmp_path):
+    """An omitted num_repeats defaults to 1 in sd-scripts, and two different
+    directories are not duplicates."""
+    first = _make_flat_dataset(tmp_path / "first")
+    second = _make_flat_dataset(tmp_path / "second")
+    config = _write_toml_config(
+        tmp_path / "dataset.toml",
+        [{"image_dir": str(first)}, {"image_dir": str(second)}],
+    )
+
+    ok, message = train_utils.validate_dataset_config(str(config))
+
+    assert ok, message

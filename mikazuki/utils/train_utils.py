@@ -424,9 +424,10 @@ def _describe_subset_dir(image_dir, config_dir):
 def validate_dataset_config(dataset_config):
     """Reject a dataset toml whose subsets sd-scripts would silently skip.
 
-    sd-scripts logs ``ignore subset with image_dir=...: no images found`` and
-    then trains on whatever subsets are left, so a wrong ``image_dir`` produces
-    a run that completes normally, emits checkpoints, and quietly trained on a
+    sd-scripts logs a single warning per skipped subset and then trains on
+    whatever subsets are left, so a wrong ``image_dir``, a ``num_repeats``
+    below 1, or a duplicated ``image_dir`` / ``metadata_file`` produces a run
+    that completes normally, emits checkpoints, and quietly trained on a
     fraction of the data. Fail the submit instead.
 
     Returns ``(ok, message)``.
@@ -456,24 +457,46 @@ def validate_dataset_config(dataset_config):
         )
 
     config_dir = os.path.dirname(config_path)
-    empty = []
+    problems = []
     checked = 0
-    for subset in subsets:
+    seen_keys = set()
+    for index, subset in enumerate(subsets, 1):
         image_dir = str(subset.get("image_dir") or "").strip()
+        metadata_file = str(subset.get("metadata_file") or "").strip()
+        key = image_dir or metadata_file
+        label = key or f"第 {index} 个子集 / subset #{index}"
+
+        # sd-scripts checks num_repeats first and registers only surviving
+        # subsets (train_util.py prepare_images), so a subset skipped here
+        # cannot shadow a later duplicate of itself. Omitting num_repeats
+        # defaults to 1 (config_util.py BaseSubsetParams); a non-int value
+        # already fails the toml schema check, so only int < 1 skips silently.
+        num_repeats = subset.get("num_repeats")
+        if isinstance(num_repeats, int) and num_repeats < 1:
+            problems.append(f"{label}（num_repeats={num_repeats} 小于 1，sd-scripts 会忽略整个子集）")
+            continue
+
+        if key:
+            if key in seen_keys:
+                problems.append(f"{label}（重复子集，sd-scripts 只保留第一个 / duplicated subset is ignored）")
+                continue
+            seen_keys.add(key)
+
         if not image_dir:
             # metadata_file-driven finetune subsets carry their own image list.
             continue
         checked += 1
         problem = _describe_subset_dir(image_dir, config_dir)
         if problem:
-            empty.append(f"{image_dir}（{problem}）")
+            problems.append(f"{image_dir}（{problem}）")
 
-    if empty:
-        listed = "\n".join(f"  - {item}" for item in empty)
+    if problems:
+        listed = "\n".join(f"  - {item}" for item in problems)
         return False, (
             "数据集配置中以下子集会被 sd-scripts 静默跳过，训练看起来正常但这部分数据不会被训练：\n"
             f"{listed}\n"
-            "请检查 dataset_config 里的 image_dir。注意 sd-scripts 只扫描该目录下的图片，不递归子目录。"
+            "请检查 dataset_config。注意 sd-scripts 只扫描该目录下的图片，不递归子目录；"
+            "num_repeats 必须 ≥1；重复的 image_dir / metadata_file 只保留第一个。"
         )
 
     log.info(f"Dataset config {config_path} validated: {checked} image subset(s) have images")
