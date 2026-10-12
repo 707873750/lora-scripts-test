@@ -18,12 +18,14 @@
 
 使用 DiffSynth 引擎训练 Qwen-Image-2.1 LoRA，左侧配置训练，右侧查看 TOML。[从零开始训练 Qwen-Image-2.1](docs/diffsynth.md) · [查看完整界面导览](docs/interface-tour.md)。
 
-## 3.1.3 更新了什么
+## 3.2.0 更新了什么
 
-- **整合包引擎环境自愈**：Musubi / AI Toolkit 整合包若仍指向构建机 Python，解压或挪目录后会自动修复 venv（#406 / #411）。
-- **Anima 2B / 2.9B 规格选择**：训练页可选模型规格，并按规格记住底模路径（#394）。
-- **Kohya 独立引擎**：可在 **设置 → 训练引擎** 中安装、修复、卸载 Kohya，不再占用 GUI Python 环境。
-- **默认训练引擎**：可设置启动时默认引擎，也可选择记住上次使用的引擎。
+- **标签编辑重做**：图片墙优先，选中后才展开编辑面板；提供「标签编辑 / 自由编辑」两种模式、批量操作与历史记录。
+- **离线中文释义**：内置 Danbooru 中文词典（约 33 万条），翻译来源精简为 **词库 / 本地模型 / API**，词库来源完全离线。
+- **设置区重构**：顺序调整为 **UI 设置 → 训练引擎 → API → 插件市场 → 高级设置 → 关于**；新增 **API** 页统一管理接口与本地模型，网络与下载源归入高级设置。
+- **训练任务队列**：训练任务自动排队、服务重启后不丢失，失败 / 已终止任务可按原配置重新排队。
+- **Musubi 新增 Ideogram 4 LoRA**：FP8 量化权重、非商用许可，整合包不预置（上游仍标记 experimental）。
+- **修复**：Anima 页面的 LoKr / LoHa / T-LoRA 参数在刷新或导入配置时被重置为默认值；数据集配置预检拒绝会被静默跳过的子集。
 
 [完整更新日志](CHANGELOG.md) · [Qwen-Image-2.1 入门教程](docs/diffsynth.md) · [Anima Fast 使用指南](docs/anima-fast.md)
 
@@ -37,7 +39,7 @@
 
 ## 支持的模型
 
-**Qwen-Image-2.1 · Anima · SD 1.5 · SDXL · Flux · FLUX.2 Klein · Krea 2**
+**Qwen-Image-2.1 · Anima · SD 1.5 · SDXL · Flux · FLUX.2 Klein · Krea 2 · Ideogram 4**
 
 不同模型支持的训练目标、硬件要求和引擎安装方式有所区别，详见[模型与训练指南](docs/README.md#training--训练)。
 
@@ -45,9 +47,11 @@
 
 **Windows 用户**：推荐[下载整合包](https://github.com/wochenlong/lora-scripts-next/releases)，解压后使用包内启动脚本。需要 NVIDIA 显卡，详细步骤和包型区别见[快速开始](docs/getting-started.md)。
 
-**版本说明**：3.1.3 源码已进入 `main`。整合包有单独的发布进度，请以 Releases 中的版本号和更新说明为准；旧整合包不一定包含 DiffSynth 与 Qwen-Image-2.1 支持。
+**版本说明**：3.2.0 源码已进入 `main`。整合包有单独的发布进度，请以 Releases 中的版本号和更新说明为准；旧整合包不一定包含 DiffSynth 与 Qwen-Image-2.1 支持。
 
-想使用 3.1.3 源码版本，或在 Linux 上运行？请看[从源码运行](docs/getting-started.md#从源码运行)。
+想使用 3.2.0 源码版本，或在 Linux 上运行？请看[从源码运行](docs/getting-started.md#从源码运行)。
+
+命令行训练可用 `scripts/cli/train_anima_by_toml.sh`、`scripts/cli/train_anima_fast_by_toml.sh` 提交 Anima / Anima Fast 配置，参数见 [CLI 说明](docs/cli-args.md)。
 
 ---
 

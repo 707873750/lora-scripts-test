@@ -1,5 +1,4 @@
 import type { TrainingEngine, TrainingModel, TrainingTarget } from "./modules"
-import { readEnginePrefs } from "../engines/prefs"
 
 export const LAST_TRAINING_SELECTION_KEY = "nt.training.lastSelection"
 
@@ -10,7 +9,6 @@ export interface RecentTrainingSelection {
 }
 
 export function readRecentTrainingSelection(): RecentTrainingSelection | undefined {
-  if (!readEnginePrefs().rememberLast) return undefined
   try {
     const parsed = JSON.parse(localStorage.getItem(LAST_TRAINING_SELECTION_KEY) || "null")
     if (!parsed || typeof parsed !== "object") return undefined
@@ -22,6 +20,5 @@ export function readRecentTrainingSelection(): RecentTrainingSelection | undefin
 }
 
 export function writeRecentTrainingSelection(selection: RecentTrainingSelection) {
-  if (!readEnginePrefs().rememberLast) return
   localStorage.setItem(LAST_TRAINING_SELECTION_KEY, JSON.stringify(selection))
 }

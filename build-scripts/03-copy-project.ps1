@@ -21,6 +21,7 @@ function Get-CorePortableCopyPolicy {
             "build-scripts",
             "node_modules",
             "logs",
+            "user_data",
             "output",
             "huggingface",
             "tagger-models",
@@ -62,7 +63,7 @@ $excludeDirs = @($copyPolicy.excludedDirectories)
 # 使用 robocopy 复制
 Write-Host "复制项目文件（排除模型目录）..."
 $excludeArgs = $excludeDirs | ForEach-Object { "/XD", $_ }
-robocopy $ProjectRoot $targetDir /E /NFL /NDL /NJH /NJS /NC @excludeArgs | Out-Null
+robocopy $ProjectRoot $targetDir /E /NFL /NDL /NJH /NJS /NC /XF network.local.json @excludeArgs | Out-Null
 
 # robocopy 返回码: 0-7 表示成功
 if ($LASTEXITCODE -gt 7) {

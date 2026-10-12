@@ -116,16 +116,12 @@ def dump_config(adapted, autosave_dir, run_id):
             serialized = dict(row)
             references = serialized.get("edit_image")
             if isinstance(references, list):
-                serialized_references = []
-                for reference in references:
-                    path = Path(reference)
-                    if path.is_absolute():
-                        try:
-                            reference = os.path.relpath(path, dataset_base)
-                        except ValueError:
-                            reference = str(path)
-                    serialized_references.append(reference.replace("\\", "/"))
-                serialized["edit_image"] = serialized_references
+                serialized["edit_image"] = [
+                    os.path.relpath(Path(reference), dataset_base).replace("\\", "/")
+                    if Path(reference).is_absolute()
+                    else reference
+                    for reference in references
+                ]
             dataset.append(serialized)
         metadata.write_text(json.dumps(dataset, ensure_ascii=False, indent=2), encoding="utf-8")
     adapted.arguments["dataset_metadata_path"] = str(metadata.resolve())

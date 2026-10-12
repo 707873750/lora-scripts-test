@@ -6,6 +6,17 @@ export interface ReleaseEntry {
 
 export const releases: readonly ReleaseEntry[] = [
   {
+    version: "v3.2.0",
+    date: "2026-10-11",
+    items: [
+      "标签编辑重做：标签 / 自由两种模式、批量操作、历史记录；内置离线 Danbooru 中文词典",
+      "设置区重构：新增 API 页（接口与本地模型），网络与下载源归入高级设置",
+      "训练任务队列：自动排队、重启不丢失、可按原配置重新排队",
+      "Musubi 新增 Ideogram 4 LoRA（FP8 量化权重、非商用许可）",
+      "修复 Anima 页面 LoKr / LoHa / T-LoRA 参数在刷新或导入时被重置",
+    ],
+  },
+  {
     version: "v3.1.3",
     date: "2026-10-09",
     items: [
