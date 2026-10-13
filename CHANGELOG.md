@@ -20,6 +20,7 @@
 - **底模已是 FP8 时自动关闭 fp8_base/fp8_scaled（#417）**：只读 safetensors 头部探测 DiT dtype，已是 FP8 权重时自动关闭这两项并提示；非 FP8 底模的成对约束不变
 - **max_train_steps 与 max_train_epochs 同时填写（#418）**：按**步数优先**只保留 max_train_steps 并明确提示（上游以 epoch 优先，会让「steps=100」实跑到按 epoch 推导的步数），表单文案同步写清
 - **AI Toolkit 的 Ideogram 4 文本编码器改为 Comfy FP8 单文件（#446 跟进）**：驱动层把 tokenizer/config 仍指向本地目录、权重走 Comfy 单文件（上游 mixin 原生支持 `comfy_quant` 单文件加载），资源清单改为「TE 单文件 + config/tokenizer 目录（约几 MB）」，用户不再需要 ~16 GB 的 bf16 目录；`model_directory` 分支与 `config/model_assets.toml` 覆盖仍可回退到 bf16 目录
+- **Ideogram 4（AI Toolkit）无条件采样 LoRA 设为可选（#446 跟进）**：新增可选资源 `unconditional_lora`（第三方产物 `ostris/ideogram_4_unconditional_lora`，103.9 MB）与表单可选字段「无条件 LoRA 路径」——填了走非对称 CFG 预览，不填走单 DiT CFG；顺带修掉 `text_encoder_tokenizer_path` 被字段白名单误报「未支持」的噪音警告
 
 
 ### 整合包更新修复
