@@ -17,6 +17,8 @@
 - **AI Toolkit 新增 SD 1.5 与 Ideogram 4 LoRA（#446）**：两个模型都直接读取 Comfy 格式单文件，无需用户转换 diffusers 目录
   - **SD 1.5（arch `sd1`）**：`single_file` 模式加载 Comfy/LDM 全量 checkpoint（`model.diffusion_model.*` / `cond_stage_model.*` / `first_stage_model.*`），由驱动层绑定本地 diffusers 配置目录（仅 config 与 tokenizer，不含权重，默认 `sd-models/sd15/config`，可由「训练用模型」面板从 HF / ModelScope 下载），离线启动不访问 Hub
   - **Ideogram 4（arch `ideogram4`）**：`comfyui_files` 模式直接使用 Comfy-Org 单文件（条件 DiT + Flux2 VAE，与 Musubi 同一套下载源），驱动层在内存中整理 FP8 `weight_scale` 形状并剔除 `comfy_quant` 标记后交给上游扩展，不写 diffusers 目录、不产生缓存副本；文本编码器使用本地 Qwen3-VL-8B BF16 目录。沿用**非商用**许可提示，整合包不预置权重
+- **底模已是 FP8 时自动关闭 fp8_base/fp8_scaled（#417）**：只读 safetensors 头部探测 DiT dtype，已是 FP8 权重时自动关闭这两项并提示；非 FP8 底模的成对约束不变
+- **max_train_steps 与 max_train_epochs 同时填写（#418）**：按**步数优先**只保留 max_train_steps 并明确提示（上游以 epoch 优先，会让「steps=100」实跑到按 epoch 推导的步数），表单文案同步写清
 
 
 ### 整合包更新修复
