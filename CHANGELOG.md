@@ -19,6 +19,7 @@
   - **Ideogram 4（arch `ideogram4`）**：`comfyui_files` 模式直接使用 Comfy-Org 单文件（条件 DiT + Flux2 VAE，与 Musubi 同一套下载源），驱动层在内存中整理 FP8 `weight_scale` 形状并剔除 `comfy_quant` 标记后交给上游扩展，不写 diffusers 目录、不产生缓存副本；文本编码器使用本地 Qwen3-VL-8B BF16 目录。沿用**非商用**许可提示，整合包不预置权重
 - **底模已是 FP8 时自动关闭 fp8_base/fp8_scaled（#417）**：只读 safetensors 头部探测 DiT dtype，已是 FP8 权重时自动关闭这两项并提示；非 FP8 底模的成对约束不变
 - **max_train_steps 与 max_train_epochs 同时填写（#418）**：按**步数优先**只保留 max_train_steps 并明确提示（上游以 epoch 优先，会让「steps=100」实跑到按 epoch 推导的步数），表单文案同步写清
+- **AI Toolkit 的 Ideogram 4 文本编码器改为 Comfy FP8 单文件（#446 跟进）**：驱动层把 tokenizer/config 仍指向本地目录、权重走 Comfy 单文件（上游 mixin 原生支持 `comfy_quant` 单文件加载），资源清单改为「TE 单文件 + config/tokenizer 目录（约几 MB）」，用户不再需要 ~16 GB 的 bf16 目录；`model_directory` 分支与 `config/model_assets.toml` 覆盖仍可回退到 bf16 目录
 
 
 ### 整合包更新修复
