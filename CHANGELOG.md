@@ -21,6 +21,10 @@
 - **max_train_steps 与 max_train_epochs 同时填写（#418）**：按**步数优先**只保留 max_train_steps 并明确提示（上游以 epoch 优先，会让「steps=100」实跑到按 epoch 推导的步数），表单文案同步写清
 - **AI Toolkit 的 Ideogram 4 文本编码器改为 Comfy FP8 单文件（#446 跟进）**：驱动层把 tokenizer/config 仍指向本地目录、权重走 Comfy 单文件（上游 mixin 原生支持 `comfy_quant` 单文件加载），资源清单改为「TE 单文件 + config/tokenizer 目录（约几 MB）」，用户不再需要 ~16 GB 的 bf16 目录；`model_directory` 分支与 `config/model_assets.toml` 覆盖仍可回退到 bf16 目录
 - **Ideogram 4（AI Toolkit）无条件采样 LoRA 设为可选（#446 跟进）**：新增可选资源 `unconditional_lora`（第三方产物 `ostris/ideogram_4_unconditional_lora`，103.9 MB）与表单可选字段「无条件 LoRA 路径」——填了走非对称 CFG 预览，不填走单 DiT CFG；顺带修掉 `text_encoder_tokenizer_path` 被字段白名单误报「未支持」的噪音警告
+- **DiffSynth 软链权重误报（#390）**：路径规范化不再跟随叶子软链，AutoDL 那类「`*.safetensors` 名字指向无后缀实体」的挂载不再被后缀校验误拒
+- **单条提交的 autosave 快照重名（#334）**：`/api/run` 的配置快照名加入随机后缀，同一秒内连续提交不再互相覆盖（批量提交此前已修）
+- **anima-fast 小数据集丢图提示（#338）**：预检在「图片数偏少 + train_batch_size>1」时预警上游 bucket 采样会整桶丢弃图片（启动日志里只有一条 WARNING 就会被忽略掉），并给出 batch_size=1 / num_repeats / bucket_reso_steps / validation_split_num 的处理建议
+- **Anima TE 缓存固化 caption_dropout_rate（#333）**：文档写明「改动该值需删除 `_anima_te.npz` 再重训」的限制（[开发进度](docs/dev-progress.md)）；上游缓存键的一致性校验待跟进
 
 
 ### 整合包更新修复
