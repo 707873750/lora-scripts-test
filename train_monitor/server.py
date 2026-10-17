@@ -252,8 +252,9 @@ def build_model_outputs(train_out: Path | None) -> dict:
     }
 
 
-def newest_preview_images(limit: int = 6) -> list[dict]:
-    config = latest_training_config()
+def newest_preview_images(limit: int = 6, config: dict | None = None) -> list[dict]:
+    if config is None:
+        config = latest_training_config()
     output_dir = resolve_repo_path(str(config.get("output_dir", "")))
     output_name = str(config.get("output_name", "")).strip()
     try:
@@ -405,11 +406,12 @@ _TOML_NUM_KEYS = ("max_train_epochs", "max_train_steps", "learning_rate", "unet_
 _TOML_BOOL_KEYS = ("gradient_checkpointing", "full_bf16", "full_fp16")
 
 
-def latest_training_config() -> dict:
+def latest_training_config(config_path: str | None = None) -> dict:
     autosave_dir = REPO / "config/autosave"
     if not autosave_dir.exists():
         return {}
-    configs = sorted(autosave_dir.glob("*.toml"), key=lambda p: p.stat().st_mtime, reverse=True)
+    configs = ([Path(config_path)] if config_path else
+               sorted(autosave_dir.glob("*.toml"), key=lambda p: p.stat().st_mtime, reverse=True))
     for config_path in configs:
         try:
             text = config_path.read_text(encoding="utf-8", errors="replace")
@@ -685,10 +687,11 @@ def _infer_adapter_type(source: str) -> str:
     return "LoRA"
 
 
-def infer_model_type(lines: list[str]) -> str:
+def infer_model_type(lines: list[str], config_path: str | None = None) -> str:
     text = "\n".join(lines[-1000:]).lower()
     config_text = ""
-    autosaves = sorted((REPO / "config/autosave").glob("*.toml"), key=lambda p: p.stat().st_mtime, reverse=True)
+    autosaves = ([Path(config_path)] if config_path else
+                 sorted((REPO / "config/autosave").glob("*.toml"), key=lambda p: p.stat().st_mtime, reverse=True))
     if autosaves:
         try:
             config_text = autosaves[0].read_text(encoding="utf-8", errors="replace").lower()
@@ -871,21 +874,33 @@ def parse_log(lines: list[str]) -> dict:
 # Status collection
 # ---------------------------------------------------------------------------
 
-def _training_output_dir() -> Path | None:
-    """Return the resolved output_dir from the latest training config, or None."""
-    config = latest_training_config()
+def _training_output_dir(config: dict | None = None) -> Path | None:
+    """Return the resolved output_dir for the selected training config."""
+    if config is None:
+        config = latest_training_config()
     return resolve_repo_path(str(config.get("output_dir", "")))
 
 
 def collect_status() -> dict:
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    gui_api = GUI_API
+    gui_error = None
+    tasks = []
     try:
-        previews = newest_preview_images()
+        tasks_payload, gui_api = fetch_gui_json("/train/tasks")
+        tasks = api_data(tasks_payload).get("tasks", [])
+    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+        gui_error = exc
+    active = next((task for task in tasks if task.get("status") == "RUNNING"),
+                  next((task for task in tasks if task.get("status") == "QUEUED"),
+                       tasks[-1] if tasks else None))
+    config_path = active.get("config_file") if active else None
+    train_config = latest_training_config(config_path)
+    try:
+        previews = newest_preview_images(config=train_config)
     except Exception:
         previews = []
-
-    train_out = _training_output_dir()
-    train_config = latest_training_config()
+    train_out = _training_output_dir(train_config)
     model_outputs = build_model_outputs(train_out)
 
     status = {
@@ -906,15 +921,11 @@ def collect_status() -> dict:
         "gpu_info": gpu_info(),
     }
 
-    gui_api = GUI_API
-    try:
-        tasks_payload, gui_api = fetch_gui_json("/train/tasks")
-        tasks = api_data(tasks_payload).get("tasks", [])
-        status["gui_online"] = True
-        status["tasks"] = tasks
-    except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError) as exc:
+    status["gui_online"] = gui_error is None
+    status["tasks"] = tasks
+    if gui_error is not None:
         status["gui_warning"] = (
-            f"主 GUI API 暂不可用（尝试 {', '.join(gui_api_candidates())}）：{exc}。"
+            f"主 GUI API 暂不可用（尝试 {', '.join(gui_api_candidates())}）：{gui_error}。"
             "训练参数、GPU 状态和 TensorBoard Loss 仍会继续同步。"
         )
         return status
@@ -924,10 +935,11 @@ def collect_status() -> dict:
         status["model_type"] = None
         return status
 
-    active = next((t for t in reversed(status["tasks"]) if t.get("status") == "RUNNING"), status["tasks"][-1])
     status["active_task"] = active
     state_map = {
         "RUNNING": "训练中",
+        "QUEUED": "排队中",
+        "FAILED": "失败",
         "FINISHED": "已结束",
         "TERMINATED": "已终止",
         "CREATED": "已创建，等待启动",
@@ -941,7 +953,7 @@ def collect_status() -> dict:
             data = api_data(tail_payload)
             lines = data.get("lines", [])
             status["log_lines"] = lines
-            status["model_type"] = infer_model_type(lines)
+            status["model_type"] = infer_model_type(lines, config_path)
             try:
                 status["metrics"] = parse_log(lines)
                 metrics = status["metrics"]
@@ -984,6 +996,16 @@ def preview_image_path(raw_path: str) -> Path | None:
         train_out = _training_output_dir()
         if train_out is not None:
             allowed_roots.append(train_out.resolve())
+        try:
+            payload, _ = fetch_gui_json("/train/tasks")
+            for task in api_data(payload).get("tasks", []):
+                if task.get("config_file"):
+                    config = latest_training_config(task["config_file"])
+                    root = _training_output_dir(config)
+                    if root is not None:
+                        allowed_roots.append(root.resolve())
+        except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError):
+            pass
         if not any(candidate == root or root in candidate.parents for root in allowed_roots):
             return None
         if not candidate.is_file() or candidate.suffix.lower() not in IMAGE_EXTENSIONS:

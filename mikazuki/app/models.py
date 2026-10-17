@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from typing import List, Optional, Union, Dict, Any
 
 
@@ -48,3 +48,7 @@ class APIResponseSuccess(APIResponse):
 
 class APIResponseFail(APIResponse):
     status: str = "fail"
+
+
+class QueueShutdownRequest(BaseModel):
+    enabled: StrictBool

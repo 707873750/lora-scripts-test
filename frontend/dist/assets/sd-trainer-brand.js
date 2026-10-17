@@ -125,3 +125,6 @@
     boot();
   }
 })();
+
+// Shared queue controls also survive VuePress route changes.
+(function () { const script = document.createElement("script"); script.src = "/assets/training-queue.js?v=1"; document.head.append(script); })();

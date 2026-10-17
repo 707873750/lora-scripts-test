@@ -1,5 +1,4 @@
 
-import asyncio
 import os
 import sys
 import webbrowser
@@ -61,8 +60,9 @@ def _announce_train_log(task_id: str, urls: dict) -> None:
 def run_train(toml_path: str,
               trainer_file: str = "./scripts/train_network.py",
               gpu_ids: Optional[list] = None,
-              cpu_threads: Optional[int] = 2):
-    log.info(f"Training started with config file / 训练开始，使用配置文件: {toml_path}")
+              cpu_threads: Optional[int] = 2,
+              task_name: Optional[str] = None):
+    log.info(f"Training submitted with config file / 训练已提交，使用配置文件: {toml_path}")
     args = [
         sys.executable, "-m", "accelerate.commands.launch",  # use -m to avoid python script executable error
         "--num_cpu_threads_per_process", str(cpu_threads),  # cpu threads
@@ -88,30 +88,15 @@ def run_train(toml_path: str,
                 customize_env["USE_LIBUV"] = "0"
                 args[3:3] = ["--rdzv_backend", "c10d"]
 
-    if not (task := tm.create_task(args, customize_env)):
+    if not (task := tm.create_task(args, customize_env, name=task_name or os.path.basename(toml_path))):
         return APIResponse(status="error", message="Failed to create task / 无法创建训练任务")
 
     urls = build_train_log_urls(task.task_id)
     _announce_train_log(task.task_id, urls)
 
-    def _run():
-        try:
-            task.execute()
-            task.wait()
-            rc = task.process.returncode if task.process else -1
-            if rc != 0:
-                log.error(f"Training failed / 训练失败 (exit {rc})")
-            else:
-                log.info(f"Training finished / 训练完成")
-        except Exception as e:
-            log.error(f"An error occurred when training / 训练出现致命错误: {e}")
-
-    coro = asyncio.to_thread(_run)
-    asyncio.create_task(coro)
-
     return APIResponse(
         status="success",
-        message=f"Training started / 训练开始 ID: {task.task_id}",
+        message=f"Training submitted / 训练已提交，按顺序自动执行 ID: {task.task_id}",
         data={
             "task_id": task.task_id,
             "train_log_path": "/train-log",

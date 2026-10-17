@@ -88,3 +88,9 @@ git commit -m "vendor: refresh frontend/dist from hanamizuki-ai/lora-gui-dist <N
 ## 致谢
 
 `frontend/dist/` 中的全部静态资源版权与许可归原作者所有，详见上游 [`hanamizuki-ai/lora-gui-dist`](https://github.com/hanamizuki-ai/lora-gui-dist) 与 [`Akegarasu/lora-scripts-frontend`](https://github.com/Akegarasu/lora-scripts-frontend)。本仓库仅做最小 patch（见上面两张表，共 27 处文字替换）以适配 Anima LoRA 训练入口的命名。
+
+## 训练任务队列
+
+`assets/training-queue.js` 为本仓库维护的独立脚本，由 `sd-trainer-brand.js` 加载，在所有训练路由显示队列入口，轮询 `/api/tasks` 展示状态和顺序，调用现有终止接口取消排队或运行中的任务。更新上游 dist 时需保留该脚本和加载入口。
+
+自动关机控件也在 `training-queue.js` 中维护，通过 `/api/tasks` 读取倒计时与错误，通过 `POST /api/tasks/shutdown` 开关；倒计时由后端负责，不依赖浏览器保持打开。

@@ -249,9 +249,9 @@
       if (cls === "live") {
         sStatus.textContent = "训练中"; sStatus.className = "value running";
       } else if (cls === "done") {
-        sStatus.textContent = "已完成"; sStatus.className = "value finished";
+        sStatus.textContent = text; sStatus.className = "value finished";
       } else if (cls === "err") {
-        sStatus.textContent = "异常";   sStatus.className = "value error";
+        sStatus.textContent = text; sStatus.className = "value error";
       }
     }
 
@@ -349,6 +349,7 @@
       setStatus("连接中…", "live");
 
       let es;
+      let streamDone = false;
       try { es = new EventSource(`/api/train/log/stream/${encodeURIComponent(taskId)}`); }
       catch (e) { setStatus("无法创建 SSE", "err"); appendLine(String(e)); return; }
 
@@ -356,7 +357,12 @@
       es.onmessage = (ev) => {
         try {
           const j = JSON.parse(ev.data);
-          if (j.done) { setStatus("已完成", "done"); es.close(); return; }
+          if (j.done) {
+            streamDone = true;
+            const labels = {FINISHED: "已完成", FAILED: "训练失败", TERMINATED: "已取消"};
+            setStatus(labels[j.status] || "已结束", j.status === "FAILED" ? "err" : "done");
+            es.close(); return;
+          }
           if (j.error) { setStatus(j.error, "err"); return; }
           if (j.text !== undefined) {
             parseLine(j.text);
@@ -367,7 +373,7 @@
         }
       };
       es.onerror = () => {
-        if (statEl.textContent.indexOf("已完成") === -1) setStatus("连接中断（训练结束可刷新）", "done");
+        if (!streamDone) setStatus("连接中断（训练结束可刷新）", "done");
         es.close();
       };
 

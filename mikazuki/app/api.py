@@ -6,6 +6,8 @@ import os
 import re
 import random
 import sys
+import uuid
+import threading
 
 from glob import glob
 from datetime import datetime
@@ -21,7 +23,7 @@ from mikazuki import launch_utils
 from mikazuki.app.config import app_config
 from mikazuki.app.models import (APIResponse, APIResponseFail,
                                  APIResponseSuccess, TaggerInterrogateRequest,
-                                 TaggerPrefetchRequest)
+                                 TaggerPrefetchRequest, QueueShutdownRequest)
 from mikazuki.dataset_editor import router as dataset_editor_router
 from mikazuki.log import log
 from mikazuki.tagger.interrogator import available_interrogators
@@ -365,66 +367,78 @@ def apply_anima_training_defaults(config: dict, model_train_type: str):
 
 @router.post("/run")
 async def create_toml_file(request: Request):
-    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    autosave_dir = os.path.join(os.getcwd(), "config", "autosave")
-    os.makedirs(autosave_dir, exist_ok=True)
-    toml_file = os.path.join(autosave_dir, f"{timestamp}.toml")
-    json_data = await request.body()
-
-    config: dict = json.loads(json_data.decode("utf-8"))
-    train_utils.fix_config_types(config)
-    normalize_custom_args(config)
-
-    gpu_ids = config.pop("gpu_ids", None)
-
-    suggest_cpu_threads = 8 if len(train_utils.get_total_images(config["train_data_dir"])) > 200 else 2
-    model_train_type = config.pop("model_train_type", "sd-lora")
-    trainer_file = trainer_mapping[model_train_type]
-    apply_sdxl_prediction_type(config, model_train_type)
-    apply_anima_training_defaults(config, model_train_type)
-
-    if model_train_type != "sdxl-finetune":
-        if not train_utils.validate_data_dir(config["train_data_dir"]):
-            return APIResponseFail(message="训练数据集路径不存在或没有图片，请检查目录。")
-
-    validated, message = train_utils.validate_model(config["pretrained_model_name_or_path"], model_train_type)
-    if not validated:
-        return APIResponseFail(message=message)
-
-    if "prompt_file" in config and config["prompt_file"].strip() != "":
-        prompt_file = config["prompt_file"].strip()
-        if not os.path.exists(prompt_file):
-            return APIResponseFail(message=f"Prompt 文件 {prompt_file} 不存在，请检查路径。")
-        config["sample_prompts"] = prompt_file
-    else:
+    submission = threading.Event()
+    try:
         try:
-            positive_prompt, sample_prompts_arg = get_sample_prompts(config=config, model_train_type=model_train_type)
+            await asyncio.to_thread(tm.begin_submission, submission)
+        except RuntimeError as exc:
+            return APIResponseFail(message=str(exc))
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f") + "-" + uuid.uuid4().hex[:12]
+        autosave_dir = os.path.join(os.getcwd(), "config", "autosave")
+        os.makedirs(autosave_dir, exist_ok=True)
+        toml_file = os.path.join(autosave_dir, f"{timestamp}.toml")
+        json_data = await request.body()
 
-            if positive_prompt is not None and train_utils.is_promopt_like(sample_prompts_arg):
-                sample_prompts_file = os.path.join(autosave_dir, f"{timestamp}-promopt.txt")
-                with open(sample_prompts_file, "w", encoding="utf-8") as f:
-                    f.write(sample_prompts_arg)
-                config["sample_prompts"] = sample_prompts_file
-                log.info(f"Wrote prompts to file {sample_prompts_file}")
+        config: dict = json.loads(json_data.decode("utf-8"))
+        train_utils.fix_config_types(config)
+        normalize_custom_args(config)
 
-        except ValueError as e:
-            log.error(f"Error while processing prompts: {e}")
-            return APIResponseFail(message=str(e))
+        gpu_ids = config.pop("gpu_ids", None)
 
-    apply_anima_training_defaults(config, model_train_type)
-    sanitize_config(config)
+        suggest_cpu_threads = 8 if len(train_utils.get_total_images(config["train_data_dir"])) > 200 else 2
+        model_train_type = config.pop("model_train_type", "sd-lora")
+        trainer_file = trainer_mapping[model_train_type]
+        apply_sdxl_prediction_type(config, model_train_type)
+        apply_anima_training_defaults(config, model_train_type)
 
-    if not config.get("sample_prompts"):
-        config.pop("sample_at_first", None)
-        config.pop("sample_every_n_epochs", None)
-        config.pop("sample_every_n_steps", None)
+        if model_train_type != "sdxl-finetune":
+            if not train_utils.validate_data_dir(config["train_data_dir"]):
+                return APIResponseFail(message="训练数据集路径不存在或没有图片，请检查目录。")
 
-    with open(toml_file, "w", encoding="utf-8") as f:
-        f.write(toml.dumps(config))
+        validated, message = train_utils.validate_model(config["pretrained_model_name_or_path"], model_train_type)
+        if not validated:
+            return APIResponseFail(message=message)
 
-    result = process.run_train(toml_file, trainer_file, gpu_ids, suggest_cpu_threads)
+        if "prompt_file" in config and config["prompt_file"].strip() != "":
+            prompt_file = config["prompt_file"].strip()
+            if not os.path.exists(prompt_file):
+                return APIResponseFail(message=f"Prompt 文件 {prompt_file} 不存在，请检查路径。")
+            config["sample_prompts"] = prompt_file
+        else:
+            try:
+                positive_prompt, sample_prompts_arg = get_sample_prompts(config=config, model_train_type=model_train_type)
 
-    return result
+                if positive_prompt is not None and train_utils.is_promopt_like(sample_prompts_arg):
+                    sample_prompts_file = os.path.join(autosave_dir, f"{timestamp}-promopt.txt")
+                    with open(sample_prompts_file, "w", encoding="utf-8") as f:
+                        f.write(sample_prompts_arg)
+                    config["sample_prompts"] = sample_prompts_file
+                    log.info(f"Wrote prompts to file {sample_prompts_file}")
+
+            except ValueError as e:
+                log.error(f"Error while processing prompts: {e}")
+                return APIResponseFail(message=str(e))
+
+        apply_anima_training_defaults(config, model_train_type)
+        sanitize_config(config)
+
+        if not config.get("sample_prompts"):
+            config.pop("sample_at_first", None)
+            config.pop("sample_every_n_epochs", None)
+            config.pop("sample_every_n_steps", None)
+
+        with open(toml_file, "w", encoding="utf-8") as f:
+            f.write(toml.dumps(config))
+
+        result = await asyncio.to_thread(process.run_train, toml_file, trainer_file, gpu_ids, suggest_cpu_threads,
+                                       task_name=config.get("output_name") or model_train_type)
+
+        return result
+    finally:
+        # Mark synchronously, even if to_thread(begin_submission) was cancelled.
+        submission.set()
+        await asyncio.shield(asyncio.to_thread(tm.end_submission, submission))
+
 
 
 @router.post("/run_script")
@@ -594,13 +608,24 @@ async def get_files(pick_type) -> APIResponse:
 @router.get("/tasks", response_model_exclude_none=True)
 async def get_tasks() -> APIResponse:
     return APIResponseSuccess(data={
-        "tasks": tm.dump()
+        "tasks": await asyncio.to_thread(tm.dump),
+        "shutdown": await asyncio.to_thread(tm.shutdown_status),
     })
+
+
+@router.post("/tasks/shutdown", response_model_exclude_none=True)
+async def set_queue_shutdown(request: QueueShutdownRequest) -> APIResponse:
+    try:
+        state = await asyncio.to_thread(tm.set_shutdown, request.enabled)
+    except ValueError as exc:
+        return APIResponseFail(message=str(exc))
+    return APIResponseSuccess(data={"shutdown": state})
 
 
 @router.get("/tasks/terminate/{task_id}", response_model_exclude_none=True)
 async def terminate_task(task_id: str):
-    tm.terminate_task(task_id)
+    if not await asyncio.to_thread(tm.terminate_task, task_id):
+        raise HTTPException(status_code=404, detail="Unknown task_id")
     return APIResponseSuccess()
 
 
@@ -676,7 +701,9 @@ async def train_log_stream(task_id: str):
                 yield "data: " + json.dumps({"text": line}, ensure_ascii=False) + "\n\n"
             idx = total
             if done:
-                yield "data: " + json.dumps({"done": True}, ensure_ascii=False) + "\n\n"
+                task = tm.tasks[task_id]
+                yield "data: " + json.dumps({"done": True, "status": task.status.name,
+                                             "returncode": task.returncode}, ensure_ascii=False) + "\n\n"
                 break
 
     return StreamingResponse(
@@ -709,7 +736,7 @@ async def train_log_tail(task_id: str, limit: int = 240):
 @router.get("/train/tasks")
 async def list_train_tasks():
     """Running / known training tasks (for tying UI to task_id)."""
-    return APIResponseSuccess(data={"tasks": tm.dump()})
+    return APIResponseSuccess(data={"tasks": await asyncio.to_thread(tm.dump)})
 
 
 @router.get("/check_update")
