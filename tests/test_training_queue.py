@@ -494,6 +494,56 @@ class ShutdownTests(unittest.TestCase):
                 self.manager.set_shutdown(True)
             self.assertFalse(self.manager.shutdown_status()['supported'])
 
+    def test_linux_shutdown_wrapper_without_shebang_uses_bash(self):
+        import errno
+        from unittest.mock import mock_open
+        error = OSError(errno.ENOEXEC, 'Exec format error', 'shutdown')
+        with patch.object(queue.sys, 'platform', 'linux'), \
+                patch.object(queue.subprocess, 'run', side_effect=[error, None]) as run, \
+                patch.object(queue.shutil, 'which', side_effect=['/cloud/shutdown', '/bin/bash']), \
+                patch('builtins.open', mock_open(read_data=b'echo fake-power-off\n')):
+            queue.shutdown_host()
+        self.assertEqual(run.call_count, 2)
+        self.assertEqual(run.call_args.args[0], ['/bin/bash', '/cloud/shutdown', '-h', 'now'])
+        self.assertTrue(run.call_args.kwargs['check'])
+        self.assertNotIn('shell', run.call_args.kwargs)
+
+    def test_permission_denied_does_not_retry_in_shell(self):
+        import errno
+        error = PermissionError(errno.EACCES, 'Permission denied')
+        with patch.object(queue.sys, 'platform', 'linux'), \
+                patch.object(queue.subprocess, 'run', side_effect=error) as run:
+            with self.assertRaises(PermissionError):
+                queue.shutdown_host()
+        run.assert_called_once()
+
+    def test_invalid_binary_does_not_retry_in_shell(self):
+        import errno
+        from unittest.mock import mock_open
+        error = OSError(errno.ENOEXEC, 'Exec format error')
+        with patch.object(queue.sys, 'platform', 'linux'), \
+                patch.object(queue.subprocess, 'run', side_effect=error) as run, \
+                patch.object(queue.shutil, 'which', side_effect=['/cloud/shutdown', '/bin/bash']), \
+                patch('builtins.open', mock_open(read_data=b'\x7fELF\0binary')):
+            with self.assertRaises(OSError):
+                queue.shutdown_host()
+        run.assert_called_once()
+
+    def test_wrapper_failure_remains_visible_to_shutdown_manager(self):
+        import errno
+        from unittest.mock import mock_open
+        error = OSError(errno.ENOEXEC, 'Exec format error')
+        failed = queue.subprocess.CalledProcessError(1, ['bash'], stderr='wrapper failed')
+        with patch.object(queue.sys, 'platform', 'linux'), \
+                patch.object(queue.subprocess, 'run', side_effect=[error, failed]), \
+                patch.object(queue.shutil, 'which', side_effect=['/cloud/shutdown', '/bin/bash']), \
+                patch('builtins.open', mock_open(read_data=b'false\n')):
+            self.manager._shutdown_action = queue.shutdown_host
+            timer = self.arm_and_finish()
+            timer.fire()
+        self.assertIn('wrapper failed', self.manager.shutdown_status()['error'])
+        self.assertFalse(self.manager.shutdown_status()['triggered'])
+
     def test_shutdown_command_is_mocked_and_does_not_force_close(self):
         for platform in ('win32', 'linux'):
             with self.subTest(platform=platform), patch.object(queue.sys, 'platform', platform), \

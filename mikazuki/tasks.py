@@ -1,4 +1,6 @@
 import subprocess
+import errno
+import shutil
 import sys
 import os
 import threading
@@ -46,7 +48,24 @@ def shutdown_host():
     else:
         raise ValueError("当前平台不支持自动关机")
     options = {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
-    subprocess.run(command, check=True, capture_output=True, text=True, timeout=15, **options)
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True, timeout=15, **options)
+    except OSError as exc:
+        # Cloud images can provide a shell wrapper without a shebang. execve
+        # rejects it with ENOEXEC, while an interactive shell can run it.
+        if sys.platform != "linux" or exc.errno != errno.ENOEXEC:
+            raise
+        shutdown_path = shutil.which(command[0])
+        bash_path = shutil.which("bash")
+        if not shutdown_path or not bash_path:
+            raise
+        with open(shutdown_path, "rb") as script:
+            header = script.read(4096)
+        # Do not interpret an invalid/wrong-architecture binary as shell code.
+        if not header or b"\0" in header:
+            raise
+        subprocess.run([bash_path, shutdown_path, *command[1:]], check=True,
+                       capture_output=True, text=True, timeout=15)
 
 
 class TaskStatus(Enum):
