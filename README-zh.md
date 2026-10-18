@@ -21,15 +21,15 @@
 
 [![KohakuBlueleaf 的 MOSS-Image 基础模型与 100 步风格 LoRA 效果对比](assets/readme/kohaku-moss-style-lora.png)](assets/readme/kohaku-moss-style-lora.png)
 
-## 3.2.0 更新了什么
+## 3.3.0 更新了什么
 
-- **标签编辑重做**：图片墙优先，选中后才展开编辑面板；提供「标签编辑 / 自由编辑」两种模式、批量操作与历史记录。
-- **离线中文释义**：内置 Danbooru 中文词典（约 33 万条），翻译来源精简为 **词库 / 本地模型 / API**，词库来源完全离线。
-- **设置区重构**：顺序调整为 **UI 设置 → 训练引擎 → API → 插件市场 → 高级设置 → 关于**；新增 **API** 页统一管理接口与本地模型，网络与下载源归入高级设置。
-- **训练任务队列**：训练任务自动排队、服务重启后不丢失，失败 / 已终止任务可按原配置重新排队。
-- **MOSS-Image LoRA**：新增 MOSS-Image 训练，推荐并默认使用 Kohya；`anima_lora` 运行时保留为次选路径。
-- **Musubi 新增 Ideogram 4 LoRA**：FP8 量化权重、非商用许可，整合包不预置（上游仍标记 experimental）。
-- **修复**：Anima 页面的 LoKr / LoHa / T-LoRA 参数在刷新或导入配置时被重置为默认值；数据集配置预检拒绝会被静默跳过的子集。
+- **多引擎工作台**：统一支持 Kohya、Anima Fast、Musubi、AI Toolkit、DiffSynth-Studio 和 MOSS（anima_lora），并补充模型与引擎对应表及训练教程入口。
+- **Kohya 运行环境独立化**：Kohya 使用 `extensions/kohya/` 独立环境；训练器源码更新与引擎环境分离，Kohya 可按需安装、修复和审计。
+- **更新不再丢失 Kohya**：源码更新和整合包更新都会保留用户拥有的训练运行时；整合包更新器排除 `Next-Trainer/extensions/`，不会因更新主程序卸载 Kohya。
+- **MOSS-Image**：新增 MOSS-Image LoRA 训练，默认推荐 Kohya，`anima_lora` 作为次选路径。
+- **AI Toolkit 与 Ideogram 4**：加入 AI Toolkit 训练引擎和 Ideogram 4 LoRA 入口，按需安装，不强制下载可选引擎环境。
+- **插件市场调整**：当前没有可用插件内容，已从用户界面和默认构建中隐藏，也不会强制下载空的 marketplace 依赖。
+- **3.3.0-dev 整合包**：提供小于 2 GB 的 lite 包，包含基础运行环境、前端、WD 打标模型和离线 tokenizer，不预装 Kohya。
 
 [完整更新日志](CHANGELOG.md)
 

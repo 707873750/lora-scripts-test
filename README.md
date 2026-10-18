@@ -21,15 +21,15 @@ A **100-step style LoRA test** by [KohakuBlueleaf](https://github.com/KohakuBlue
 
 [![MOSS-Image base model and 100-step style LoRA comparison by KohakuBlueleaf](assets/readme/kohaku-moss-style-lora.png)](assets/readme/kohaku-moss-style-lora.png)
 
-## What's new in 3.2.0
+## What's new in 3.3.0
 
-- **Caption editor rebuilt:** the image wall leads, the editor panel opens with the selection; tag and free-text modes, batch operations and history.
-- **Offline Chinese glosses:** a bundled Danbooru dictionary (~330k entries) with dictionary / local model / API sources; the dictionary works fully offline.
-- **Settings restructure:** UI, Training Engines, API, Plugins, Advanced, About; the new **API** page holds shared endpoint and local-model configuration, network and download sources moved under Advanced.
-- **Training task queue:** runs queue automatically, survives a service restart, and failed or stopped tasks can re-enter the queue with their original config.
-- **MOSS-Image LoRA:** MOSS-Image training is available with Kohya as the recommended/default engine; the anima_lora runtime remains an optional secondary path.
-- **Ideogram 4 LoRA on Musubi:** FP8-only, non-commercial weights you fetch yourself (upstream still marks it experimental).
-- **Fixes:** LoKr / LoHa / T-LoRA parameters on the Anima page are no longer reset when reloading or importing a config; the dataset-config preflight now rejects subsets that would be skipped silently.
+- **Multi-engine workbench:** Kohya, Anima Fast, Musubi, AI Toolkit, DiffSynth-Studio, and MOSS (`anima_lora`) are presented through one engine workflow, with an updated model/engine matrix and tutorial index.
+- **Independent Kohya runtime:** Kohya uses its own environment under `extensions/kohya/`; trainer source updates are separated from engine installation, repair, and auditing.
+- **Kohya survives updates:** source and portable-package updates preserve user-owned training runtimes; the portable updater excludes `Next-Trainer/extensions/` so updating the main program does not uninstall Kohya.
+- **MOSS-Image:** MOSS-Image LoRA training is available with Kohya as the recommended/default engine and `anima_lora` as an optional secondary path.
+- **AI Toolkit and Ideogram 4:** AI Toolkit training and an Ideogram 4 LoRA entry are available as optional engines and are not force-installed.
+- **Plugin marketplace:** the currently empty marketplace is hidden from users and skipped by default, so its unused dependencies are not downloaded.
+- **3.3.0-dev portable package:** a sub-2 GB lite package includes the base runtime, frontend, WD tagger model, and offline tokenizer assets without preinstalling Kohya.
 
 [Full changelog](CHANGELOG.md)
 
