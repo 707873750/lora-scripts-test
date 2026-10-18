@@ -33,6 +33,14 @@ A **100-step style LoRA test** by [KohakuBlueleaf](https://github.com/KohakuBlue
 
 [Full changelog](CHANGELOG.md)
 
+## Get started
+
+**Windows users:** download the current [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z), extract it, and use the included launcher. It contains the base runtime, frontend, WD tagger model, and offline tokenizer assets. Kohya is not preinstalled, and the empty plugin marketplace is not downloaded; install a training engine from **Settings → Training engines** when needed. An NVIDIA GPU is required; see [setup and package selection](docs/getting-started.en.md).
+
+**Release status:** the recommended portable package is `3.3.0-dev`. The larger preinstalled-Kohya package is distributed separately from GitHub Releases; the empty plugin marketplace is hidden from users and skipped by default during builds.
+
+For the latest source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
+
 ## Supported training engines
 
 ![One interface, multiple training engines — concept illustration](assets/readme/next-trainer-multi-engine.png)
@@ -84,14 +92,6 @@ The illustrations above are conceptual; their artwork is not a benchmark or a sa
 - [TOML / CLI](docs/cli-args.md)
 
 [Interface tour](docs/interface-tour.md) · [Tagger model setup](docs/tagger-models.md) · [Training monitor](docs/train-monitor.md) · [All documentation](docs/README.md)
-
-## Get started
-
-**Windows users:** download the current [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z), extract it, and use the included launcher. It contains the base runtime, frontend, WD tagger model, and offline tokenizer assets. Kohya is not preinstalled, and the empty plugin marketplace is not downloaded; install a training engine from **Settings → Training engines** when needed. An NVIDIA GPU is required; see [setup and package selection](docs/getting-started.en.md).
-
-**Release status:** the recommended portable package is `3.3.0-dev`. The larger preinstalled-Kohya package is distributed separately from GitHub Releases; the empty plugin marketplace is hidden from users and skipped by default during builds.
-
-For the latest source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
 
 
 ---

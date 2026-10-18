@@ -33,6 +33,14 @@
 
 [完整更新日志](CHANGELOG.md)
 
+## 开始使用
+
+**Windows 用户**：推荐直接下载当前整合包 [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z)，解压后使用包内启动脚本。该包包含基础运行环境、前端、WD 打标模型和离线 tokenizer，不预装 Kohya，也不会下载空的插件市场依赖；首次训练时可在 **设置 → 训练引擎** 按需安装引擎。需要 NVIDIA 显卡，详细步骤和包型区别见[快速开始](docs/getting-started.md)。
+
+**版本说明**：当前推荐整合包版本为 `3.3.0-dev`。预装 Kohya 的大体积包单独发布，不放在 GitHub Release；插件市场当前没有可用内容，已从用户界面和默认构建中隐藏。
+
+想使用最新源码或在 Linux 上运行？请看[从源码运行](docs/getting-started.md#从源码运行)。
+
 ## 支持的训练引擎
 
 ![一个前端，多种训练引擎（概念示意图）](assets/readme/next-trainer-multi-engine.png)
@@ -84,14 +92,6 @@ Kohya 还提供 Anima、SDXL、SD 1.5 的全量训练入口。MOSS-Image 默认�
 - [TOML / CLI](docs/cli-args.md)
 
 [界面导览](docs/interface-tour.md) · [打标模型准备](docs/tagger-models.md) · [训练监控](docs/train-monitor.md) · [全部文档](docs/README.md)
-
-## 开始使用
-
-**Windows 用户**：推荐直接下载当前整合包 [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z)，解压后使用包内启动脚本。该包包含基础运行环境、前端、WD 打标模型和离线 tokenizer，不预装 Kohya，也不会下载空的插件市场依赖；首次训练时可在 **设置 → 训练引擎** 按需安装引擎。需要 NVIDIA 显卡，详细步骤和包型区别见[快速开始](docs/getting-started.md)。
-
-**版本说明**：当前推荐整合包版本为 `3.3.0-dev`。预装 Kohya 的大体积包单独发布，不放在 GitHub Release；插件市场当前没有可用内容，已从用户界面和默认构建中隐藏。
-
-想使用最新源码或在 Linux 上运行？请看[从源码运行](docs/getting-started.md#从源码运行)。
 
 
 ---
