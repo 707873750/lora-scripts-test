@@ -41,6 +41,27 @@
 
 想使用最新源码或在 Linux 上运行？请看[从源码运行](docs/getting-started.md#从源码运行)。
 
+### 如何更新
+
+**源码安装：**
+
+1. 关闭 WebUI 和正在运行的训练任务。
+2. 在项目目录执行 `git status`，确认自己的修改已提交或已备份。
+3. 稳定版切换到 `main` 后执行 `git pull --ff-only`；只想跟进下一版本时使用 `git fetch origin` 后再切换到 `dev`。
+4. 重新运行 `run_gui.bat`（Windows）或 `bash run_gui.sh`（Linux）。如果依赖发生变化，按启动器提示重新运行 `install-cn.ps1` / `setup_environment.py`，不要删除整个项目目录里的用户数据。
+
+源码更新只更新仓库代码；已安装的 Kohya 环境位于 `extensions/kohya/`，不要手动删除该目录。升级后如果页面提示 Kohya 环境损坏，再进入 **设置 → 训练引擎 → Kohya → 修复/安装**，由程序按当前版本重新检查或修复。
+
+**整合包安装：**
+
+- 优先双击包根目录的 `Update-Next-Trainer-Release.bat`，它会下载最新 Release 并合并程序文件；无法访问 Release 时可使用 `Update-Next-Trainer.bat` 走 Git 更新。
+- 更新前必须关闭 WebUI。更新器会保留 `Next-Trainer\extensions\`、模型、输出、日志、训练集和配置；其中 `Next-Trainer\extensions\kohya\` 就是 Kohya 独立环境，不会被更新包覆盖。
+- 更新完成后重新双击 `run_gui.bat`。如果启动器提示依赖变化，再运行包内 `update\update_dependencies.bat`；不要先删除 `python_embeded` 或 `extensions\kohya`。
+
+**没有更新脚本的旧整合包：**不要把新版 7z 直接解压到旧目录并选择覆盖。先关闭程序，将旧包中的 `Next-Trainer\extensions\kohya\` 整个目录复制到安全位置，再下载新版并解压到新目录，最后把该目录复制回新版的 `Next-Trainer\extensions\kohya\`；同时迁移 `sd-models`、`output`、`logs`、`train`、`config`、`huggingface` 和 `tagger-models`。复制完成后从新版根目录启动。这个步骤把“程序代码更新”和“Kohya 环境”分开，避免旧版覆盖方式再次丢失引擎。
+
+lite 包本身不预装 Kohya；首次使用时请在 **设置 → 训练引擎** 安装。安装完成后，后续更新只要使用上面的更新器并保留 `Next-Trainer\extensions\kohya\`，就不会因为更新主程序而卸载 Kohya。详细的整合包更新契约见[整合包更新说明](docs/portable-packaging-git-update.md)。
+
 ## 支持的训练引擎
 
 ![一个前端，多种训练引擎（概念示意图）](assets/readme/next-trainer-multi-engine.png)

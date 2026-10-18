@@ -41,6 +41,27 @@ A **100-step style LoRA test** by [KohakuBlueleaf](https://github.com/KohakuBlue
 
 For the latest source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
 
+### Updating
+
+**Source installation:**
+
+1. Close the WebUI and stop active training jobs.
+2. Run `git status` in the project directory and commit or back up any local changes.
+3. For the stable version, switch to `main` and run `git pull --ff-only`. To follow the next development version, run `git fetch origin` and then switch to `dev`.
+4. Start again with `run_gui.bat` on Windows or `bash run_gui.sh` on Linux. If the launcher reports changed dependencies, rerun `install-cn.ps1` / `setup_environment.py` as instructed; do not delete the project directory's user data.
+
+Source updates change repository code only. The installed Kohya environment lives under `extensions/kohya/`; do not delete it manually. If the UI reports a broken Kohya environment after an upgrade, use **Settings → Training engines → Kohya → Repair/Install** so the current version can audit or repair it.
+
+**Portable package:**
+
+- Prefer `Update-Next-Trainer-Release.bat` from the package root. It downloads the latest Release and merges the program files. If GitHub Release downloads are unavailable, use `Update-Next-Trainer.bat` for a Git update.
+- Close the WebUI before updating. The updater preserves `Next-Trainer\extensions\`, models, outputs, logs, training data, and configuration. `Next-Trainer\extensions\kohya\` is the independent Kohya environment and is excluded from the update merge.
+- Start again with `run_gui.bat`. If the launcher reports changed dependencies, run the included `update\update_dependencies.bat`; do not delete `python_embeded` or `extensions\kohya` first.
+
+**Old portable packages without an updater:** do not extract a new 7z directly over the old directory. Close the application, copy the old `Next-Trainer\extensions\kohya\` directory to a safe location, extract the new package into a new directory, then restore that directory to `Next-Trainer\extensions\kohya\`. Also migrate `sd-models`, `output`, `logs`, `train`, `config`, `huggingface`, and `tagger-models`. Launch from the new package. This keeps the program update separate from the Kohya environment and avoids losing the engine through an old overwrite workflow.
+
+The lite package does not include Kohya. Install it from **Settings → Training engines** when needed. After installation, use the updater above and keep `Next-Trainer\extensions\kohya\`; updating the main program will not uninstall Kohya. See the [portable update contract](docs/portable-packaging-git-update.md) for the detailed rules.
+
 ## Supported training engines
 
 ![One interface, multiple training engines — concept illustration](assets/readme/next-trainer-multi-engine.png)
