@@ -66,11 +66,11 @@ Training targets, hardware requirements, and optional engine installation vary b
 
 ## Get started
 
-**Windows users:** [download a portable package](https://github.com/wochenlong/lora-scripts-next/releases), extract it, and use the included launcher. An NVIDIA GPU is required; see [setup and package selection](docs/getting-started.en.md).
+**Windows users:** download the current [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z), extract it, and use the included launcher. It contains the base runtime, frontend, WD tagger model, and offline tokenizer assets. Kohya is not preinstalled, and the empty plugin marketplace is not downloaded; install a training engine from **Settings → Training engines** when needed. An NVIDIA GPU is required; see [setup and package selection](docs/getting-started.en.md).
 
-**Release status:** 3.2.0 source is on `main`. Portable packages have their own release schedule; check the version and release notes on Releases. Older packages may not include DiffSynth or Qwen-Image-2.1 support.
+**Release status:** the recommended portable package is `3.3.0-dev`. The larger preinstalled-Kohya package is distributed separately from GitHub Releases; the empty plugin marketplace is hidden from users and skipped by default during builds.
 
-For the 3.2.0 source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
+For the latest source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
 
 
 ---
