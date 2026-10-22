@@ -14,4 +14,4 @@ fi
 cd "$REPO_ROOT"
 git pull
 python "$AUTODL_DIR/apply_lora_next_anima_defaults.py"
-"$AUTODL_DIR/restart_lora_gui.sh"
+bash "$AUTODL_DIR/restart_lora_gui.sh"
