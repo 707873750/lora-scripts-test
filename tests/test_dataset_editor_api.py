@@ -1,3 +1,4 @@
+import io
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -27,8 +28,13 @@ def test_dataset_editor_scan_lists_images_and_captions(tmp_path):
     assert payload["status"] == "success"
     assert payload["data"]["root"] == str(tmp_path.resolve()).replace("\\", "/")
     assert payload["data"]["total"] == 2
-    assert payload["data"]["tags"] == [{"tag": "1girl", "count": 1}, {"tag": "solo", "count": 1}]
-    assert payload["data"]["categories"] == [{"name": "根目录", "value": "", "count": 2}]
+    assert payload["data"]["tags"] == [
+        {"tag": "1girl", "count": 1},
+        {"tag": "solo", "count": 1},
+    ]
+    assert payload["data"]["categories"] == [
+        {"name": "根目录", "value": "", "count": 2}
+    ]
 
     first = payload["data"]["items"][0]
     assert first["name"] == "alpha.png"
@@ -38,11 +44,41 @@ def test_dataset_editor_scan_lists_images_and_captions(tmp_path):
     assert first["image_url"].startswith("/api/dataset-editor/image?")
     assert "root=" in first["image_url"]
     assert "image=alpha.png" in first["image_url"]
+    assert first["thumb_url"].startswith("/api/dataset-editor/image?")
+    assert "thumb=1" in first["thumb_url"]
 
     second = payload["data"]["items"][1]
     assert second["name"] == "beta.jpg"
     assert second["caption"] == ""
     assert second["caption_exists"] is False
+
+
+def test_dataset_editor_thumbnail_serves_scaled_jpeg(tmp_path):
+    make_image(tmp_path / "alpha.png")
+
+    client = TestClient(app)
+    response = client.get("/api/dataset-editor/image", params={"root": str(tmp_path), "image": "alpha.png", "thumb": 1})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/jpeg"
+    assert "max-age" in response.headers["cache-control"]
+    with Image.open(io.BytesIO(response.content)) as thumb:
+        assert thumb.format == "JPEG"
+        assert max(thumb.size) <= 256
+
+    original = client.get("/api/dataset-editor/image", params={"root": str(tmp_path), "image": "alpha.png"})
+    assert original.status_code == 200
+    assert original.headers["content-type"] != "image/jpeg" or len(original.content) != len(response.content)
+
+
+def test_dataset_editor_thumbnail_rejects_invalid_and_missing(tmp_path):
+    make_image(tmp_path / "alpha.png")
+
+    client = TestClient(app)
+    missing = client.get("/api/dataset-editor/image", params={"root": str(tmp_path), "image": "missing.png", "thumb": 1})
+    assert missing.status_code == 404
+    outside = client.get("/api/dataset-editor/image", params={"root": str(tmp_path), "image": "../alpha.png", "thumb": 1})
+    assert outside.status_code == 400
 
 
 def test_dataset_editor_scan_groups_first_level_subfolders(tmp_path):
@@ -72,7 +108,11 @@ def test_dataset_editor_save_caption_creates_txt_caption(tmp_path):
     client = TestClient(app)
     response = client.post(
         "/api/dataset-editor/caption",
-        json={"root": str(tmp_path), "image": "alpha.png", "caption": "cat ears, smile"},
+        json={
+            "root": str(tmp_path),
+            "image": "alpha.png",
+            "caption": "cat ears, smile",
+        },
     )
 
     assert response.status_code == 200
@@ -105,8 +145,46 @@ def test_dataset_editor_batch_replace_remove_append_and_sort(tmp_path):
     payload = response.json()
     assert payload["status"] == "success"
     assert payload["data"]["changed"] == 2
-    assert (tmp_path / "alpha.txt").read_text(encoding="utf-8") == "1girl, masterpiece, new tag"
-    assert (tmp_path / "beta.txt").read_text(encoding="utf-8") == "blue eyes, masterpiece"
+    assert (tmp_path / "alpha.txt").read_text(
+        encoding="utf-8"
+    ) == "1girl, masterpiece, new tag"
+    assert (tmp_path / "beta.txt").read_text(
+        encoding="utf-8"
+    ) == "blue eyes, masterpiece"
+
+
+def test_dataset_editor_batch_prepend_appends_tags_at_front(tmp_path):
+    make_image(tmp_path / "alpha.png")
+    make_image(tmp_path / "beta.png")
+    (tmp_path / "alpha.txt").write_text("solo, 1girl", encoding="utf-8")
+    (tmp_path / "beta.txt").write_text("masterpiece, solo", encoding="utf-8")
+
+    client = TestClient(app)
+    response = client.post(
+        "/api/dataset-editor/batch",
+        json={
+            "root": str(tmp_path),
+            "images": ["alpha.png", "beta.png"],
+            "append": ["masterpiece, best quality", "1girl"],
+            "append_position": "front",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "success"
+    assert payload["data"]["changed"] == 2
+    # Merge note (dev + feat): both branches had independently added this test
+    # with different front-append semantics. The merged code follows the
+    # feat-side semantics (requested tags form the ordered prefix; existing
+    # occurrences are removed, see dataset_editor.batch_edit), so both
+    # assertions use the prefix-slot expectation.
+    assert (tmp_path / "alpha.txt").read_text(
+        encoding="utf-8"
+    ) == "masterpiece, best quality, 1girl, solo"
+    assert (tmp_path / "beta.txt").read_text(
+        encoding="utf-8"
+    ) == "masterpiece, best quality, 1girl, solo"
 
 
 def test_dataset_editor_batch_cleans_obvious_caption_noise(tmp_path):
@@ -258,234 +336,22 @@ def test_dataset_editor_rejects_path_escape(tmp_path):
     assert "outside dataset" in response.json()["detail"]
 
 
-def test_dataset_editor_html_is_served_from_main_webui():
-    client = TestClient(app)
-    response = client.get("/dataset-editor.html")
-
-    assert response.status_code == 200
-    assert "dataset-editor.js" in response.text
-    assert "旧版兼容" in response.text
-    assert 'id="undo-edit"' in response.text
-    assert 'id="redo-edit"' in response.text
-    assert 'id="category-filter"' in response.text
-    assert 'id="quick-tags"' in response.text
-    assert 'id="tag-toggle"' in response.text
-    assert 'id="side-tab-filter"' in response.text
-    assert 'id="side-tab-quick"' in response.text
-    assert 'id="side-tab-batch"' in response.text
-    assert 'id="side-tab-clean"' in response.text
-    assert 'id="apply-cleanup"' in response.text
-    assert 'id="gallery-first-page"' in response.text
-    assert 'id="gallery-prev-page"' in response.text
-    assert 'id="gallery-page-input"' in response.text
-    assert 'id="gallery-page-size"' in response.text
-    assert 'value="auto"' in response.text
-    assert 'id="gallery-next-page"' in response.text
-    assert 'id="gallery-last-page"' in response.text
-    assert 'id="thumbnail-fit"' in response.text
-    assert 'id="change-list"' in response.text
-    assert 'id="side-tab-tagger"' in response.text
-    assert 'id="side-panel-tagger"' in response.text
-    assert "<details" not in response.text
-
-
-def test_legacy_tageditor_points_to_native_editor():
-    client = TestClient(app)
-    response = client.get("/tageditor.html")
-
-    assert response.status_code == 200
-    assert "dataset-editor-entry.js" in response.text
-    assert "dataset-editor.js" in response.text
-    assert "dataset-editor.css" in response.text
-    assert 'name="sd-dataset-editor-script"' in response.text
-
-
-def test_tageditor_embeds_native_editor_in_trainer_shell():
-    script = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor-entry.js").read_text(
-        encoding="utf-8"
-    )
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert "de-shell de-shell-embedded" in script
-    assert "theme-default-content" in script
-    assert "打开内置编辑器" not in script
-    assert "/proxy/tageditor/" not in script
-    assert ".de-shell-embedded" in css
-    assert "--de-accent: var(--c-brand" in css
-    assert "grid-template-rows: 1fr" in css
-    assert ".de-shell-embedded .de-workspace" in css
-    assert "height: 100%" in css
-    assert "grid-template-columns: 320px minmax(520px, 1fr) 380px" in css
-    assert ".de-gallery-empty" in css
-    assert "@media (max-width: 1500px)" in css
-    assert "grid-template-columns: 300px minmax(420px, 1fr)" in css
-    assert ".de-shell-embedded .de-selection-actions" in css
-
-
-def test_legacy_gradio_tageditor_is_opt_in():
+def test_legacy_gradio_tageditor_is_removed():
     gui = (ROOT / "gui.py").read_text(encoding="utf-8")
+    proxy = (ROOT / "mikazuki" / "app" / "proxy.py").read_text(encoding="utf-8")
 
-    assert "--enable-legacy-tageditor" in gui
-    assert "legacy_tageditor_enabled = args.enable_legacy_tageditor" in gui
-    assert "Using native dataset editor at /dataset-editor.html" in gui
-
-
-def test_dataset_editor_frontend_exposes_edit_efficiency_controls():
-    script = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.js").read_text(
-        encoding="utf-8"
-    )
-
-    assert "/api/dataset-editor/undo" in script
-    assert "/api/dataset-editor/redo" in script
-    assert "/api/dataset-editor/history" in script
-    assert "category-filter" in script
-    assert "quick-tags" in script
-    assert "applyCleanup" in script
-    assert "underscore_to_space" in script
-    assert "tagExpanded" in script
-    assert "TAG_COLLAPSED_LIMIT" in script
-    assert "GALLERY_PAGE_SIZE" in script
-    assert 'const DEFAULT_GALLERY_PAGE_SIZE = "auto"' in script
-    assert "galleryPageSize" in script
-    assert "autoGalleryPageSize" in script
-    assert "ResizeObserver" in script
-    assert "galleryPage" in script
-    assert "goToGalleryPage" in script
-    assert "thumbnailFit" in script
-    assert "change-list" in script
-    assert "Ctrl+Z" in script
-    assert "selectedPaths" in script
-    assert "selectionMode" in script
-    assert "toggleItemSelection" in script
-    assert "selectedBatchItems" in script
+    assert "enable-legacy-tageditor" not in gui
+    assert "run_tag_editor" not in gui
+    assert "dataset-tag-editor" not in gui
+    assert "/proxy/tageditor" not in proxy
+    assert "MIKAZUKI_TAGEDITOR_PORT" not in gui
 
 
-def test_dataset_editor_css_keeps_desktop_workbench_layout():
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-    desktop_workspace = css.split(".de-workspace {", 1)[1].split("}", 1)[0]
+def test_dataset_editor_vue_source_exposes_enhanced_workflow():
+    source = (ROOT / "frontend/src/pages/DatasetEditorPage.vue").read_text(encoding="utf-8")
+    api = (ROOT / "frontend/src/api/dataset.ts").read_text(encoding="utf-8")
 
-    assert "--de-workbench-min-width" in css
-    assert "grid-template-columns: 280px minmax(596px, 1fr) 420px" in css
-    assert "grid-template-columns: 1fr" not in desktop_workspace
-
-
-def test_dataset_editor_css_uses_readable_thumbnail_cards():
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert "grid-template-rows: 220px 20px" in css
-    assert "minmax(220px, 1fr)" in css
-    assert "object-fit: contain" in css
-    assert ".de-gallery.is-cover .de-card img" in css
-
-
-def test_dataset_editor_keeps_tag_cloud_out_of_default_filter_tab():
-    html = (ROOT / "frontend" / "dist" / "dataset-editor.html").read_text(encoding="utf-8")
-
-    filter_panel = html.split('id="side-panel-filter"', 1)[1].split('id="side-panel-quick"', 1)[0]
-    quick_panel = html.split('id="side-panel-quick"', 1)[1]
-
-    assert 'id="tag-list"' not in filter_panel
-    assert 'id="tag-list"' in quick_panel
-
-
-def test_dataset_editor_default_sidebar_starts_with_cleanup_workflow():
-    html = (ROOT / "frontend" / "dist" / "dataset-editor.html").read_text(encoding="utf-8")
-
-    clean_index = html.index('id="side-tab-clean"')
-    batch_index = html.index('id="side-tab-batch"')
-    filter_index = html.index('id="side-tab-filter"')
-    quick_index = html.index('id="side-tab-quick"')
-
-    assert clean_index < batch_index < filter_index < quick_index
-    assert 'id="side-tab-clean" class="de-tab is-active"' in html
-
-
-def test_dataset_editor_pager_controls_are_right_aligned():
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert ".de-gallery-page-summary" in css
-    assert ".de-gallery-page-controls" in css
-    assert "justify-content: flex-end" in css
-
-
-def test_dataset_editor_gallery_supports_bulk_selection_controls():
-    html = (ROOT / "frontend" / "dist" / "dataset-editor.html").read_text(encoding="utf-8")
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'id="selection-summary"' in html
-    assert 'id="select-filtered"' in html
-    assert 'id="select-page"' in html
-    assert 'id="select-all"' in html
-    assert 'id="clear-selection"' in html
-    assert "selectAllItems" in (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.js").read_text(
-        encoding="utf-8"
-    )
-    assert ".de-selection-bar" in css
-    assert ".de-card-check" in css
-    assert 'data-bulk-selected="true"' in css
-
-
-def test_embedded_dataset_editor_compacts_toolbar_on_narrow_viewports():
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert "@media (max-width: 1080px)" in css
-    assert ".de-shell-embedded .de-selection-bar" in css
-    assert "grid-template-columns: 1fr" in css
-    assert ".de-shell-embedded .de-gallery-page-controls" in css
-    assert "justify-content: flex-start" in css
-    assert "flex-wrap: wrap" in css
-
-
-def test_dataset_editor_dataset_picker_is_prominent():
-    html = (ROOT / "frontend" / "dist" / "dataset-editor.html").read_text(encoding="utf-8")
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'class="de-dataset-card"' in html
-    assert 'class="de-dataset-path"' in html
-    assert html.index('id="dataset-path"') < html.index('class="de-gallery-wrap"')
-    assert ".de-dataset-card" in css
-    assert "min-height: 148px" in css
-    assert "border-color: rgba(15, 118, 110, 0.36)" in css
-    assert ".de-dataset-card::before" in css
-    assert ".de-scope-card" in css
-    assert ".de-dataset-actions button" in css
-    assert "min-height: 42px" in css
-    assert ".de-dataset-path:focus-within" in css
-
-
-def test_dataset_editor_left_sidebar_owns_dataset_scope_and_tagger():
-    html = (ROOT / "frontend" / "dist" / "dataset-editor.html").read_text(encoding="utf-8")
-    css = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.css").read_text(
-        encoding="utf-8"
-    )
-    script = (ROOT / "frontend" / "dist" / "assets" / "dataset-editor.js").read_text(
-        encoding="utf-8"
-    )
-
-    sidebar = html.split('class="de-panel de-filter"', 1)[1].split('class="de-gallery-wrap"', 1)[0]
-    editor = html.split('class="de-panel de-editor"', 1)[1]
-
-    assert 'class="de-dataset-card"' in sidebar
-    assert 'class="de-scope-card"' in sidebar
-    assert sidebar.index('id="category-filter"') < sidebar.index('id="side-tab-clean"')
-    assert 'id="side-tab-tagger"' in sidebar
-    assert 'id="side-panel-tagger"' in sidebar
-    assert "打标" in sidebar
-    assert "自动打标" not in editor
-    assert "tagger: document.getElementById" in script
-    assert ".de-scope-card" in css
-    assert "grid-template-columns: repeat(5, 1fr)" in css
+    for marker in ("selectedPaths", "clearSelection", "selectCurrentPageOnly", "tagFilter", "pageSize", "replaceFrom", "sessionHistory",):
+        assert marker in source
+    for endpoint in ("/batch", "/undo", "/redo", "/history"):
+        assert endpoint in api

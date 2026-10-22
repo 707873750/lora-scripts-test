@@ -51,7 +51,9 @@ NEW_SIDEBAR_JSON = (
     '[{"text":"Next Trainer","link":"/"},'
     '{"text":"训练","children":['
     '{"text":"LoRA 训练","link":"/lora/index.md","collapsible":false,"children":['
-    '{"text":"Anima LoRA","link":"/lora/sd3.md"},'
+    '{"text":"Anima LoRA","link":"/lora/sd3.md","collapsible":false,"children":['
+    '{"text":"标准模式","link":"/lora/sd3.md"},'
+    '{"text":"Fast 模式","link":"/lora/anima-fast.md"}]},'
     '{"text":"Flux","link":"/lora/flux.md"},'
     '{"text":"Stable Diffusion","link":"/lora/master.md"}]},'
     '{"text":"\\u5168\\u91cf\\u5fae\\u8c03","link":"/lora/anima-finetune.md","collapsible":false,"children":['
@@ -113,15 +115,7 @@ def build_sidebar_html(rel_path: str) -> str:
 
     lora_heading_active = active("/lora/index.md")
     finetune_heading_active = active("/dreambooth/index.md") or active("/lora/anima-finetune.md")
-    train_expanded = (
-        lora_heading_active
-        or finetune_heading_active
-        or active("/lora/sd3.md")
-        or active("/lora/flux.md")
-        or active("/lora/master.md")
-        or active("/lora/basic.md")
-        or active("/lora/sdxl.md")
-    )
+    train_expanded = True
     # LoRA 子项仅由 app.js 导航在客户端渲染；SSR 不要再写 <ul>，否则会重复一份
     lora_block = item_heading(
         "/lora/index.md", "LoRA训练", "LoRA训练", lora_heading_active, close_li=True

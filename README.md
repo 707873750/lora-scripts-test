@@ -1,188 +1,120 @@
 <p align="center">
-  <img src="assets/readme/next-trainer-cover.png" alt="Next Trainer" width="880" />
-</p>
-
-<h1 align="center">Next Trainer</h1>
-
-<p align="center">
-  <b>One-click LoRA &amp; full finetune training GUI for Windows</b> — supports <b>Anima</b> / SD 1.5 / SDXL / Flux<br/>
-  Extract and run. No environment setup needed. ~12 GB VRAM for Anima LoRA; <b>Anima full finetune needs ~24 GB</b>.<br/>
-  <sub>Powered by <a href="https://github.com/kohya-ss/sd-scripts">kohya-ss/sd-scripts</a>, Akegarasu-style GUI.</sub>
+  <img src="assets/readme/next-trainer-cover.png" alt="Next Trainer — 支持 MOSS 训练" width="720" />
 </p>
 
 <p align="center">
-  <a href="https://github.com/wochenlong/lora-scripts-next/releases"><img src="https://img.shields.io/github/v/release/wochenlong/lora-scripts-next?include_prereleases&style=for-the-badge&color=a78bfa&label=Download" alt="Download"/></a>
+  <strong>A local training workbench for multiple models and engines</strong><br />
+  Prepare datasets, train models, and follow your runs in one place.
 </p>
 
 <p align="center">
-  <a href="https://github.com/wochenlong/lora-scripts-next"><img src="https://img.shields.io/github/stars/wochenlong/lora-scripts-next?style=flat-square&label=stars&logo=github&color=8b5cf6" alt="stars"/></a>
-  <a href="https://github.com/wochenlong/lora-scripts-next/blob/main/LICENSE"><img src="https://img.shields.io/github/license/wochenlong/lora-scripts-next?style=flat-square&color=ec4899" alt="license"/></a>
+  <a href="https://github.com/wochenlong/lora-scripts-next/releases">Download</a> ·
+  <a href="docs/getting-started.en.md">Quick start</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="README-zh.md">中文</a>
 </p>
-<p align="center">
-  <a href="https://github.com/wochenlong/lora-scripts-next/blob/main/README-zh.md"><b>中文</b></a>
-</p>
-<p align="center">
-  <a href="https://github.com/wochenlong/lora-scripts-next/blob/main/NOTICE.md"><b>Credits</b></a>
-</p>
+
+
+## MOSS-Image training showcase
+
+A **100-step style LoRA test** by [KohakuBlueleaf](https://github.com/KohakuBlueleaf), trained with their [KohakuMossTrainer](https://github.com/KohakuBlueleaf/KohakuMossTrainer). The top row shows the base model; the bottom row shows the LoRA results. Shared with the author's permission as a MOSS-Image training example; these results were produced with KohakuMossTrainer.
+
+[![MOSS-Image base model and 100-step style LoRA comparison by KohakuBlueleaf](assets/readme/kohaku-moss-style-lora.png)](assets/readme/kohaku-moss-style-lora.png)
+
+## What's new in 3.3.0
+
+- **Multi-engine workbench:** Kohya, Anima Fast, Musubi, AI Toolkit, DiffSynth-Studio, and MOSS (`anima_lora`) are presented through one engine workflow, with an updated model/engine matrix and tutorial index.
+- **Independent Kohya runtime:** Kohya uses its own environment under `extensions/kohya/`; trainer source updates are separated from engine installation, repair, and auditing.
+- **Kohya survives updates:** source and portable-package updates preserve user-owned training runtimes; the portable updater excludes `Next-Trainer/extensions/` so updating the main program does not uninstall Kohya.
+- **MOSS-Image:** MOSS-Image LoRA training is available with Kohya as the recommended/default engine and `anima_lora` as an optional secondary path.
+- **AI Toolkit and Ideogram 4:** AI Toolkit training and an Ideogram 4 LoRA entry are available as optional engines and are not force-installed.
+- **Plugin marketplace:** the currently empty marketplace is hidden from users and skipped by default, so its unused dependencies are not downloaded.
+- **3.3.0-dev portable package:** a sub-2 GB lite package includes the base runtime, frontend, WD tagger model, and offline tokenizer assets without preinstalling Kohya.
+
+[Full changelog](CHANGELOG.md)
+
+## Get started
+
+**Windows users:** download the current [Next-Trainer-v3.3.0-dev-lite.7z](https://github.com/wochenlong/lora-scripts-next/releases/download/v3.3.0-dev/Next-Trainer-v3.3.0-dev-lite.7z), extract it, and use the included launcher. It contains the base runtime, frontend, WD tagger model, and offline tokenizer assets. Kohya is not preinstalled, and the empty plugin marketplace is not downloaded; install a training engine from **Settings → Training engines** when needed. An NVIDIA GPU is required; see [setup and package selection](docs/getting-started.en.md).
+
+**Release status:** the recommended portable package is `3.3.0-dev`. The larger preinstalled-Kohya package is distributed separately from GitHub Releases; the empty plugin marketplace is hidden from users and skipped by default during builds.
+
+For the latest source version or Linux setup, follow [run from source](docs/getting-started.en.md#from-source).
+
+### Updating
+
+**Source installation:**
+
+1. Close the WebUI and stop active training jobs.
+2. Run `git status` in the project directory and commit or back up any local changes.
+3. For the stable version, switch to `main` and run `git pull --ff-only`. To follow the next development version, run `git fetch origin` and then switch to `dev`.
+4. Start again with `run_gui.bat` on Windows or `bash run_gui.sh` on Linux. If the launcher reports changed dependencies, rerun `install-cn.ps1` / `setup_environment.py` as instructed; do not delete the project directory's user data.
+
+Source updates change repository code only. The installed Kohya environment lives under `extensions/kohya/`; do not delete it manually. If the UI reports a broken Kohya environment after an upgrade, use **Settings → Training engines → Kohya → Repair/Install** so the current version can audit or repair it.
+
+**Portable package:**
+
+- Prefer `Update-Next-Trainer-Release.bat` from the package root. It downloads the latest Release and merges the program files. If GitHub Release downloads are unavailable, use `Update-Next-Trainer.bat` for a Git update.
+- Close the WebUI before updating. The updater preserves `Next-Trainer\extensions\`, models, outputs, logs, training data, and configuration. `Next-Trainer\extensions\kohya\` is the independent Kohya environment and is excluded from the update merge.
+- Start again with `run_gui.bat`. If the launcher reports changed dependencies, run the included `update\update_dependencies.bat`; do not delete `python_embeded` or `extensions\kohya` first.
+
+**Old portable packages without an updater:** do not extract a new 7z directly over the old directory. Close the application, copy the old `Next-Trainer\extensions\kohya\` directory to a safe location, extract the new package into a new directory, then restore that directory to `Next-Trainer\extensions\kohya\`. Also migrate `sd-models`, `output`, `logs`, `train`, `config`, `huggingface`, and `tagger-models`. Launch from the new package. This keeps the program update separate from the Kohya environment and avoids losing the engine through an old overwrite workflow.
+
+The lite package does not include Kohya. Install it from **Settings → Training engines** when needed. After installation, use the updater above and keep `Next-Trainer\extensions\kohya\`; updating the main program will not uninstall Kohya. See the [portable update contract](docs/portable-packaging-git-update.md) for the detailed rules.
+
+## Supported training engines
+
+![One interface, multiple training engines — concept illustration](assets/readme/next-trainer-multi-engine.png)
+
+**Kohya · Anima Fast · Musubi · AI Toolkit · DiffSynth-Studio · MOSS (anima_lora)**
+
+Install engines from **Settings → Training engines**, then select the appropriate engine on the training page. After upgrading from 3.1.1 or older, install Kohya once before running Kohya training. Available engines depend on your trainer version; not every model or feature supported upstream is integrated here.
+
+For Qwen-Image-2.1, select **DiffSynth-Studio → LoRA**, then choose **Text-to-image** or **Edit**. Edit currently requires batch size 1 and can use gradient accumulation for a larger effective batch.
+
+For MOSS-Image LoRA, use **Kohya** (recommended and selected by default). **MOSS (anima_lora)** remains available as a secondary engine.
+
+## Supported models
+
+![Supported models — concept illustration, not model output samples](assets/readme/next-trainer-models.png)
+
+**MOSS-Image · Qwen-Image-2.1 · Anima · SD 1.5 · SDXL · Flux · FLUX.2 Klein · Krea 2 · Ideogram 4**
+
+Training targets, hardware requirements, and optional engine installation vary by model. See the training tutorials below.
+
+### Model / engine compatibility
+
+✅ = an integrated LoRA entry; — = no integrated entry. This table follows this branch's training modules, not the full capabilities of upstream engines. Model variants and hardware requirements still depend on the selected engine.
+
+| Model | Kohya | Anima Fast | Musubi | AI Toolkit | DiffSynth-Studio | MOSS (anima_lora) |
+| --- | :---: | :---: | :---: | :---: | :---: | :---: |
+| MOSS-Image | ✅ | — | — | — | — | ✅ |
+| Qwen-Image-2.1 | — | — | — | ✅ | ✅ | — |
+| Krea 2 | — | — | ✅ | ✅ | — | — |
+| Anima | ✅ | ✅ | — | ✅ | — | — |
+| FLUX.2 Klein | — | — | — | ✅ | — | — |
+| Ideogram 4 | — | — | ✅ | ✅ | — | — |
+| Flux | ✅ | — | — | ✅ | — | — |
+| SDXL | ✅ | — | — | ✅ | — | — |
+| SD 1.5 | ✅ | — | — | ✅ | — | — |
+
+Kohya also provides full fine-tuning entries for Anima, SDXL, and SD 1.5. MOSS-Image defaults to Kohya; `MOSS (anima_lora)` is an alternative. Lumina has a Kohya LoRA entry accessible via `?model=lumina`, but is hidden from the normal model picker.
+
+The illustrations above are conceptual; their artwork is not a benchmark or a sample generated by each labelled model.
+
+## Training tutorials
+
+- [MOSS-Image](docs/MOSS.md)
+- [Qwen-Image-2.1](docs/diffsynth.md)
+- [Anima](docs/anima-training.md)
+- [Anima Fast](docs/anima-fast.md)
+- [Krea 2 (Linux / multi-GPU)](docs/krea2-linux-multigpu.md)
+- [Ideogram 4 (Musubi)](docs/ideogram4-musubi.md)
+- [TOML / CLI](docs/cli-args.md)
+
+[Interface tour](docs/interface-tour.md) · [Tagger model setup](docs/tagger-models.md) · [Training monitor](docs/train-monitor.md) · [All documentation](docs/README.md)
+
 
 ---
 
-<p align="center">
-  <img src="assets/readme/screenshot-webui.png?v=20260528" alt="Next Trainer home portal" width="920" />
-</p>
-
-<p align="center"><sub>Home portal — quick links to training, monitor, and onboarding</sub></p>
-
----
-
-## Get Started in 3 Steps
-
-```
-1. Download  →  SD-Trainer-v2.5.2.7z (~380 MB) from Releases, extract
-2. Launch    →  Double-click run_gui.bat (auto-installs deps on first run, ~3 GB)
-3. Train     →  Open http://127.0.0.1:28000, pick a model, set params, start training
-```
-
-The portable package ships the default WD tagger **wd14-convnextv2-v2** under **`tagger-models/wd14/`** (~400 MB). If Hugging Face download fails, place `model.onnx` and `selected_tags.csv` there manually — see [`docs/tagger-models.md`](docs/tagger-models.md).
-
-> **Requirements:** Windows 10/11, NVIDIA GPU (RTX 20+), ~7 GB disk.
-
-<details>
-<summary><b>Install from source (Linux / advanced users)</b></summary>
-
-```sh
-git clone https://github.com/wochenlong/lora-scripts-next.git
-cd lora-scripts-next
-
-# Windows
-run_gui.bat
-
-# Linux
-bash install.bash && bash run_gui.sh
-
-# Optional: install Flash Attention 2 for faster Anima training
-# Windows
-install_flash_attn.bat
-# Linux
-bash install_flash_attn.sh
-```
-
-Python **3.10** recommended. See [Flash Attention 2 docs](docs/flash-attention.md) for details.
-
-</details>
-
----
-
-## What's Supported
-
-| Mode | Model / script | Notes |
-|------|----------------|-------|
-| **Anima LoRA** | LoRA · LoKr · **T-LoRA** | Flash Attention 2 / xformers / SDPA · from ~12 GB VRAM |
-| **Anima Finetune** | Full DiT (`anima_train.py`) | Sidebar **全量微调 → Anima Finetune** · **~24 GB VRAM** (4090-class) |
-| SD 1.5 / SDXL LoRA | LoRA · LoHa · LoKr | xformers / SDPA |
-| SD 1.5 / SDXL Finetune | Dreambooth / SDXL finetune | Sidebar **全量微调 → Stable Diffusion** |
-| Flux | LoRA | xformers / SDPA |
-
-<p align="center">
-  <img src="assets/readme/screenshot-anima-lora.png?v=20260528" alt="Anima LoRA training UI" width="920" />
-</p>
-
-<p align="center"><sub>Anima LoRA — sidebar, model &amp; dataset form, config preview on the right</sub></p>
-
-<p align="center">
-  <img src="assets/readme/screenshot-anima-finetune.png?v=20260528" alt="Anima full finetune UI" width="920" />
-</p>
-
-<p align="center"><sub>Anima Finetune — full DiT weights under <b>全量微调</b> in the sidebar</sub></p>
-
----
-
-## Train Monitor
-
-Automatically opens a monitor page (port 6008) when training starts — GPU stats, training parameters, Loss curves, preview samples, and logs all in one dashboard.
-
-<p align="center">
-  <img src="assets/readme/screenshot-train-monitor.png" alt="Train Monitor Dashboard" width="920" />
-</p>
-
-<p align="center"><sub>GPU load & VRAM, total steps, training params at a glance</sub></p>
-
-<p align="center">
-  <img src="assets/readme/train-monitor-samples.png" alt="Preview Samples & Loss Curves" width="920" />
-</p>
-
-<p align="center"><sub>Preview samples and TensorBoard-backed Loss / LR curves</sub></p>
-
-<p align="center">
-  <img src="assets/readme/train-monitor-logs.png" alt="Training Logs" width="920" />
-</p>
-
-<p align="center"><sub>Real-time training logs with auto-scroll</sub></p>
-
----
-
-<details>
-<summary><b>VRAM Reference (Anima, 1024 resolution, RTX 4090 benchmarked)</b></summary>
-
-**Anima LoRA**
-
-| VRAM | Configuration | Notes |
-|------|---------------|-------|
-| ≥ 24 GB | Default settings | Easiest |
-| ≥ 16 GB | `gradient_checkpointing` | Recommended |
-| ≥ 12 GB | Gradient checkpointing | Stable |
-| ≥ 10 GB | Gradient checkpointing + `blocks_to_swap=16` | Slightly slower |
-| ≥ 8 GB | Gradient checkpointing + swap 24 + cache TE + LoKr | Tight |
-
-**Anima full finetune** (updates full DiT weights — use **Anima Finetune** in the WebUI, not LoRA)
-
-| VRAM | Configuration | Notes |
-|------|---------------|-------|
-| ≥ 24 GB | Default + latents/TE cache | **~23–24 GB dedicated VRAM** in practice; 4090-class recommended |
-
-</details>
-
-<details>
-<summary><b>Documentation</b></summary>
-
-| Topic | Link |
-|-------|------|
-| Anima LoRA Training Guide | [docs/anima-training.md](docs/anima-training.md) |
-| Anima backend (LoRA + full finetune) | [docs/anima-backend.md](docs/anima-backend.md) |
-| Anima full finetune example TOML | [docs/examples/anima-full-finetune.toml](docs/examples/anima-full-finetune.toml) |
-| Flash Attention 2 | [docs/flash-attention.md](docs/flash-attention.md) |
-| Train Monitor & SSE API | [docs/train-monitor.md](docs/train-monitor.md) |
-| Tagger model directory (`tagger-models/`) | [docs/tagger-models.md](docs/tagger-models.md) |
-| Docker Deployment | [docs/docker.md](docs/docker.md) |
-| CLI Arguments | [docs/cli-args.md](docs/cli-args.md) |
-
-</details>
-
-<details>
-<summary><b>Changelog</b></summary>
-
-| Date | Version |
-|------|---------|
-| 2026-05-28 | **v2.6.0** — **Anima full finetune** WebUI (`anima-finetune`), `anima_train.py` wrapper, 全量微调 nav, train monitor label fix; ~24 GB VRAM reference |
-| 2026-05-27 | **v2.5.3** — Portable dependency health check, sidebar version chip ([#54](https://github.com/wochenlong/lora-scripts-next/issues/54)) |
-| 2026-05-21 | **v2.5.0** — UI refresh: new sidebar navigation, home portal page, training monitor dashboard with GPU metrics; CSS cleanup |
-| 2026-05-21 | **v2.4.0** — Training stability: env isolation, NaN filter, sample guard, attn_mode fallback, path normalization; Portable tkinter fix |
-| 2026-05-20 | **v2.3.0** — Train Monitor: TensorBoard-backed curves, parameter checks, log sync |
-| 2026-05-19 | **v2.2.0** — Portable flash-attn fix, crash logging, cross-drive monitor |
-| 2026-05-19 | **v2.1.0** — Flash Attention 2 prebuilt wheels, save-by-steps |
-| 2026-05-18 | **v2.0.0** — First portable release, AMD detection, bf16 fix |
-
-Full details in [CHANGELOG.md](CHANGELOG.md).
-
-</details>
-
-<details>
-<summary><b>Credits</b></summary>
-
-[Akegarasu/lora-scripts](https://github.com/Akegarasu/lora-scripts) · [kohya-ss/sd-scripts](https://github.com/kohya-ss/sd-scripts) · [LyCORIS](https://github.com/KohakuBlueleaf/LyCORIS) · [T-LoRA](https://github.com/ControlGenAI/T-LoRA) — Full attribution in [NOTICE.md](NOTICE.md)
-
-</details>
-
----
-
-<p align="center"><sub>Maintainer: <b><a href="https://github.com/wochenlong">@wochenlong</a></b> · <a href="CONTRIBUTORS.md">Contributors</a></sub></p>
+[Documentation](docs/README.md) · [Report an issue](https://github.com/wochenlong/lora-scripts-next/issues) · [Credits](docs/credits.md) · [Contributors](CONTRIBUTORS.md)

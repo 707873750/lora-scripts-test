@@ -1,10 +1,27 @@
 # Anima LoRA 训练指南
 
+> **从 SDXL 过来？** 建议先看 **[Anima LoRA 主要参数说明（写给 SDXL 用户）](./anima-lora-parameters-sdxl.md)** — 按「你想调什么效果」整理，对照 SDXL 习惯说明哪些要改、哪些可以照旧。
+
 ## 进入训练页面
 
 启动 WebUI 后，左侧 sidebar 点 **Anima LoRA** 进入。
 
 > 技术细节：该页面复用了原 SD3 的 URL 槽位（`/lora/sd3.html`），但参数集合与训练脚本已完全是 Anima。
+
+## 下载 Anima 模型
+
+Anima 训练需要三个权重文件（DiT、Qwen3 文本编码器、VAE）。双击一键下载脚本即可：
+
+```text
+Download-Anima-Model.bat
+```
+
+| 场景 | 脚本位置 |
+|------|----------|
+| **2026 整合包** | `tools\Download-Anima-Model.bat`（根目录只有「启动 / 检查更新 / 说明」，**不要在根目录找**） |
+| 源码 clone / 旧版整合包 | 仓库根或整合包根（与 `run_gui.bat` / `gui.py` 同级） |
+
+脚本会从 ModelScope（`circlestone-labs/Anima`）下载到相对路径 **`sd-models/anima/`**，已存在的文件会自动跳过。
 
 ## 模型路径
 
@@ -43,6 +60,43 @@
 本地入口 [`scripts/dev/anima_train_network.py`](../scripts/dev/anima_train_network.py) 是兼容 wrapper：它适配 GUI 生成的 TOML，并委托给 `vendor/sd-scripts` 中的 kohya-ss 后端执行训练。
 
 配置文件：[`config/anima_backend.toml`](../config/anima_backend.toml)
+
+**Fast 模式（进阶插件）**：与标准 Kohya 后端并列，需单独安装插件；同参下 RTX 4090 实测约 **2.5×** 步速提升。详见 **[Anima Fast 模式指南](./anima-fast.md)**。
+
+## 纯命令行训练
+
+云平台无法访问 WebUI 时，可以直接用 TOML 训练。`train.sh` 是旧式 SD/SDXL/Flux 入口，Anima 请使用专用脚本。
+
+**Anima LoRA 标准模式（非 Fast）：**
+
+```bash
+bash train_anima_by_toml.sh docs/examples/anima-lora-benchmark-kohya.toml
+```
+
+等价底层入口：
+
+```bash
+python scripts/dev/anima_train_network.py --config_file docs/examples/anima-lora-benchmark-kohya.toml
+```
+
+训练前请**复制** `docs/examples/anima-lora-benchmark-kohya.toml` 并按文件内分段注释修改（模型路径、数据集、**适配器类型**、**优化器**等均有说明）。至少改这几项：
+
+- `pretrained_model_name_or_path`：Anima DiT 主权重
+- `vae`：Qwen Image VAE
+- `qwen3`：Qwen3 文本模型
+- `dataset_config`：数据集配置（同步改 `anima-lora-benchmark-dataset.toml` 里的 `image_dir`）
+- `output_dir` / `output_name`：输出位置与模型名称
+
+示例 TOML 内注释覆盖：`network_module` 与 LoRA / LoKr / T-LoRA 等适配器对照、`optimizer_type` 可选列表、学习率调度与常见可选参数。无需 WebUI 也可对照注释改配置。
+
+**Anima Fast 插件模式：**
+
+```bash
+bash scripts/cli/install_anima_fast.sh
+bash train_anima_fast_by_toml.sh docs/examples/anima-lora-benchmark-fast.toml
+```
+
+Fast 使用 `extensions/anima_lora/.venv` 独立环境；标准 Anima 使用主项目环境和 `scripts/dev/anima_train_network.py` wrapper。两者不要混用配置入口。
 
 ## 进阶：T-LoRA 训练教程
 

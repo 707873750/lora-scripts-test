@@ -1,0 +1,574 @@
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+from mikazuki.download_sources import DownloadSources
+from mikazuki.engines.musubi.environment import (
+    AuditResult,
+    audit_environment,
+    build_environment_install_plan,
+    install_environment,
+    resolve_cuda_extra,
+)
+from mikazuki.engines.musubi.extension_state import (
+    STATE_BROKEN,
+    STATE_INSTALLED_UNVERIFIED,
+    STATE_NOT_INSTALLED,
+    STATE_READY,
+    default_layout,
+    read_extension_status,
+    write_install_state,
+)
+from mikazuki.engines.musubi.installer import (
+    build_install_plan,
+    copy_source_snapshot,
+    remove_extension,
+)
+from mikazuki.engines.musubi.preflight import ProbeFacts, run_preflight
+from mikazuki.engines.musubi.settings import (
+    RuntimeConfig,
+    default_upstream_cache,
+    discover_runtime,
+    ensure_install_source_ready,
+    resolve_install_source_root,
+)
+
+
+def make_source(root: Path) -> Path:
+    source = root / "upstream"
+    (source / "src" / "musubi_tuner").mkdir(parents=True)
+    (source / "src" / "musubi_tuner" / "__init__.py").write_text("", encoding="utf-8")
+    (source / "pyproject.toml").write_text("[project]\nname = \"musubi-tuner\"\n", encoding="utf-8")
+    (source / "krea2_train_network.py").write_text("# entry\n", encoding="utf-8")
+    (source / "krea2_cache_latents.py").write_text("# entry\n", encoding="utf-8")
+    (source / ".venv").mkdir()
+    (source / ".venv" / "junk.txt").write_text("x", encoding="utf-8")
+    return source
+
+
+def make_runtime(root: Path) -> RuntimeConfig:
+    return RuntimeConfig(
+        musubi_root=(root / "vendor" / "musubi-tuner").resolve(),
+        python=(root / "vendor" / "musubi-tuner" / ".venv" / "Scripts" / "python.exe").resolve(),
+        lora_next_root=root.resolve(),
+        output_dir=(root / "output" / "musubi").resolve(),
+        logging_dir=(root / "logs" / "musubi").resolve(),
+        cache_dir=(root / ".cache" / "musubi").resolve(),
+    )
+
+
+class ExtensionStateTests(unittest.TestCase):
+    def test_missing_root_is_not_installed(self):
+        with tempfile.TemporaryDirectory() as td:
+            status = read_extension_status(default_layout(Path(td)))
+        self.assertEqual(status.state, STATE_NOT_INSTALLED)
+
+    def test_source_without_venv_is_installed_unverified(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            (layout.source / "src" / "musubi_tuner").mkdir(parents=True)
+            (layout.source / "pyproject.toml").write_text("", encoding="utf-8")
+            (layout.source / "krea2_train_network.py").write_text("", encoding="utf-8")
+            status = read_extension_status(layout)
+        self.assertEqual(status.state, STATE_INSTALLED_UNVERIFIED)
+
+    def test_ready_requires_passing_audit_facts(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            (layout.source / "src" / "musubi_tuner").mkdir(parents=True)
+            (layout.source / "pyproject.toml").write_text("", encoding="utf-8")
+            (layout.source / "krea2_train_network.py").write_text("", encoding="utf-8")
+            layout.venv_python.parent.mkdir(parents=True)
+            layout.venv_python.write_text("", encoding="utf-8")
+            write_install_state(layout, STATE_READY, {"audit": {"ok": False}})
+            status = read_extension_status(layout)
+            self.assertEqual(status.state, STATE_INSTALLED_UNVERIFIED)
+            write_install_state(layout, STATE_READY, {"audit": {"ok": True}})
+            status = read_extension_status(layout)
+            self.assertEqual(status.state, STATE_READY)
+
+    def test_missing_runtime_files_mark_broken(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            layout.source.mkdir(parents=True)
+            status = read_extension_status(layout)
+        self.assertEqual(status.state, STATE_BROKEN)
+
+
+def make_installed_layout(root: Path) -> tuple:
+    layout = default_layout(root)
+    (layout.source / "src" / "musubi_tuner").mkdir(parents=True)
+    (layout.source / "pyproject.toml").write_text("", encoding="utf-8")
+    (layout.source / "krea2_train_network.py").write_text("", encoding="utf-8")
+    layout.venv_python.parent.mkdir(parents=True)
+    layout.venv_python.write_text("", encoding="utf-8")
+    return layout
+
+
+def write_venv_cfg(layout, home: Path) -> None:
+    cfg = layout.venv_python.parent.parent / "pyvenv.cfg"
+    cfg.write_text(
+        f"home = {home}\n"
+        "include-system-site-packages = false\n"
+        "version = 3.12.1\n"
+        f"executable = {home / 'python.exe'}\n"
+        f"command = {home / 'python.exe'} -m venv {layout.root / '.venv'}\n",
+        encoding="utf-8",
+    )
+
+
+def make_packaged_python(root: Path) -> Path:
+    import sys
+
+    if sys.platform == "win32":
+        python = root / ".python" / "cpython-3.12.11-windows-x86_64-none" / "python.exe"
+    else:
+        python = root / ".python" / "cpython-3.12.11-linux-x86_64-gnu" / "bin" / "python3"
+    python.parent.mkdir(parents=True)
+    python.write_text("", encoding="utf-8")
+    return python
+
+
+class PortableVenvRepairTests(unittest.TestCase):
+    def test_status_relocates_stale_build_machine_home(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = make_installed_layout(root)
+            write_venv_cfg(layout, root / "build-machine" / ".python" / "cpython-3.12")
+            base = make_packaged_python(root)
+            write_install_state(layout, STATE_READY, {"audit": {"ok": True}})
+            status = read_extension_status(layout)
+            self.assertEqual(status.state, STATE_READY)
+            cfg = (layout.venv_python.parent.parent / "pyvenv.cfg").read_text(encoding="utf-8")
+            self.assertIn(f"home = {base.parent}", cfg)
+            self.assertNotIn("build-machine", cfg)
+
+    def test_status_marks_broken_when_no_packaged_python(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = make_installed_layout(root)
+            write_venv_cfg(layout, root / "build-machine" / ".python" / "cpython-3.12")
+            write_install_state(layout, STATE_READY, {"audit": {"ok": True}})
+            status = read_extension_status(layout)
+            self.assertEqual(status.state, STATE_BROKEN)
+            self.assertIn("3.12", status.reason)
+
+    def test_status_leaves_user_built_venv_untouched(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = make_installed_layout(root)
+            home = root / "system-python"
+            home.mkdir()
+            write_venv_cfg(layout, home)
+            make_packaged_python(root)
+            before = (layout.venv_python.parent.parent / "pyvenv.cfg").read_bytes()
+            read_extension_status(layout)
+            self.assertEqual((layout.venv_python.parent.parent / "pyvenv.cfg").read_bytes(), before)
+
+    def test_install_relocates_stale_venv_instead_of_rebuilding(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            source = root / "upstream"
+            (source / "src" / "musubi_tuner").mkdir(parents=True)
+            layout.venv_python.parent.mkdir(parents=True)
+            layout.venv_python.write_text("", encoding="utf-8")
+            write_venv_cfg(layout, root / "build-machine" / ".python" / "cpython-3.12")
+            base_python = root / "base-python" / "python3"
+            base_python.parent.mkdir(parents=True)
+            base_python.write_text("", encoding="utf-8")
+            plan = build_environment_install_plan(root, layout, source)
+            commands: list[list[str]] = []
+            with mock.patch("mikazuki.engines.musubi.environment.ensure_install_source_ready", return_value=source), \
+                    mock.patch("mikazuki.engines.musubi.environment.copy_source_snapshot"), \
+                    mock.patch("mikazuki.engines.musubi.environment._uv_command", return_value="uv"), \
+                    mock.patch("mikazuki.engines.musubi.environment._find_base_python", return_value=base_python), \
+                    mock.patch("mikazuki.engines.musubi.environment._run_streaming", side_effect=lambda cmd, *_a, **_k: commands.append(cmd)), \
+                    mock.patch("mikazuki.engines.musubi.environment.audit_environment", return_value=AuditResult(ok=True)):
+                result = install_environment(plan, lambda _line: None)
+            self.assertTrue(result.ok)
+            cfg = (layout.venv_python.parent.parent / "pyvenv.cfg").read_text(encoding="utf-8")
+            self.assertIn(f"home = {base_python.parent}", cfg)
+            self.assertFalse(any("-m" in cmd and "venv" in cmd for cmd in commands))
+
+
+class InstallerTests(unittest.TestCase):
+    def test_copy_source_snapshot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = make_source(root)
+            layout = default_layout(root)
+            plan = build_install_plan(source, layout, dry_run=False)
+            copy_source_snapshot(plan)
+
+            self.assertTrue((layout.source / "src" / "musubi_tuner" / "__init__.py").is_file())
+            self.assertTrue((layout.source / "pyproject.toml").is_file())
+            self.assertTrue((layout.source / "krea2_train_network.py").is_file())
+            self.assertTrue((layout.source / "krea2_cache_latents.py").is_file())
+            self.assertFalse((layout.source / ".venv").exists())
+
+    def test_copy_source_snapshot_requires_package(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad = root / "bad"
+            bad.mkdir()
+            plan = build_install_plan(bad, default_layout(root), dry_run=False)
+            with self.assertRaises(FileNotFoundError):
+                copy_source_snapshot(plan)
+
+    def test_remove_extension_refuses_outside_extensions(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            from mikazuki.engines.musubi.extension_state import ExtensionLayout
+
+            outside = ExtensionLayout(root / "somewhere" / "else")
+            with self.assertRaises(ValueError):
+                remove_extension(outside, root)
+
+    def test_resolve_install_source_root_finds_vendor(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "vendor" / "musubi-tuner" / "src" / "musubi_tuner").mkdir(parents=True)
+            found = resolve_install_source_root(root)
+            self.assertEqual(found, (root / "vendor" / "musubi-tuner").resolve())
+
+    def test_resolve_install_source_root_errors_when_absent(self):
+        with tempfile.TemporaryDirectory() as td:
+            with self.assertRaises(ValueError):
+                resolve_install_source_root(Path(td))
+
+    def test_resolve_install_source_root_prefers_existing_cache(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cache = default_upstream_cache(root)
+            (cache / "src" / "musubi_tuner").mkdir(parents=True)
+            self.assertEqual(resolve_install_source_root(root), cache)
+
+    def test_resolve_install_source_root_clones_when_allowed(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cache = default_upstream_cache(root)
+
+            with mock.patch("mikazuki.engines.musubi.settings.GitDownloadAdapter") as adapter:
+                adapter.return_value.acquire.return_value = cache
+                found = resolve_install_source_root(root, allow_clone=True)
+            self.assertEqual(found, cache)
+            args = adapter.return_value.acquire.call_args.args
+            self.assertEqual(args[0], cache)
+            self.assertEqual(args[1], "https://github.com/kohya-ss/musubi-tuner.git")
+
+    def test_ensure_install_source_ready_keeps_usable_preferred(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            preferred = root / "elsewhere"
+            (preferred / "src" / "musubi_tuner").mkdir(parents=True)
+            with mock.patch("mikazuki.engines.musubi.settings.subprocess.run") as run:
+                found = ensure_install_source_ready(root, preferred)
+            self.assertEqual(found, preferred.resolve())
+            run.assert_not_called()
+
+
+class EnvironmentPlanTests(unittest.TestCase):
+    def test_cuda_extra_resolution(self):
+        self.assertEqual(resolve_cuda_extra(config={}, env={}), "cu128")
+        self.assertEqual(resolve_cuda_extra(config={}, env={"MUSUBI_CUDA_EXTRA": "cu130"}), "cu130")
+        self.assertEqual(resolve_cuda_extra(config={}, env={"MUSUBI_CUDA_EXTRA": "bogus"}), "cu128")
+        self.assertEqual(resolve_cuda_extra(config={"backend": {"cuda_extra": "cu124"}}, env={}), "cu124")
+
+    def test_install_plan_layout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            plan = build_environment_install_plan(root, layout, root / "upstream", cuda_extra="cu130")
+            self.assertEqual(plan.venv_python, layout.venv_python)
+            self.assertEqual(plan.cuda_extra, "cu130")
+            self.assertTrue(plan.as_dict()["target_source"].endswith("source"))
+
+
+class InstallEnvironmentTests(unittest.TestCase):
+    def test_install_command_includes_tensorboard(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            source = root / "upstream"
+            (source / "src" / "musubi_tuner").mkdir(parents=True)
+            base_python = root / "base-python" / "python3"
+            base_python.parent.mkdir(parents=True)
+            base_python.write_text("", encoding="utf-8")
+            plan = build_environment_install_plan(root, layout, source)
+            commands: list[list[str]] = []
+            audit = AuditResult(ok=True)
+            with mock.patch("mikazuki.engines.musubi.environment.ensure_install_source_ready", return_value=source), \
+                    mock.patch("mikazuki.engines.musubi.environment.copy_source_snapshot"), \
+                    mock.patch("mikazuki.engines.musubi.environment._uv_command", return_value="uv"), \
+                    mock.patch("mikazuki.engines.musubi.environment._find_base_python", return_value=base_python), \
+                    mock.patch("mikazuki.engines.musubi.environment._run_streaming", side_effect=lambda cmd, *_a, **_k: commands.append(cmd)), \
+                    mock.patch("mikazuki.engines.musubi.environment.audit_environment", return_value=audit):
+                result = install_environment(plan, lambda _line: None)
+            self.assertTrue(result.ok)
+            pip_installs = [cmd for cmd in commands if cmd[:3] == ["uv", "pip", "install"]]
+            self.assertEqual(len(pip_installs), 1)
+            install_cmd = pip_installs[0]
+            self.assertIn(f"{plan.layout.source}[{plan.cuda_extra}]", install_cmd)
+            self.assertIn("tensorboard", install_cmd)
+
+    def test_install_command_uses_download_sources(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = default_layout(root)
+            source = root / "upstream"
+            (source / "src" / "musubi_tuner").mkdir(parents=True)
+            base_python = root / "base-python" / "python3"
+            base_python.parent.mkdir(parents=True)
+            base_python.write_text("", encoding="utf-8")
+            sources = DownloadSources(
+                pip_index_url="https://pypi.tuna.tsinghua.edu.cn/simple",
+                pytorch_index_url="https://mirrors.aliyun.com/pytorch-wheels",
+                hf_endpoint="https://hf-mirror.com",
+            )
+            plan = build_environment_install_plan(root, layout, source, cuda_extra="cu128", download_sources=sources)
+            commands: list[list[str]] = []
+            envs: list[dict | None] = []
+            audit = AuditResult(ok=True)
+
+            def _capture(cmd, *_a, env=None, **_k):
+                commands.append(cmd)
+                envs.append(env)
+
+            with mock.patch("mikazuki.engines.musubi.environment.ensure_install_source_ready", return_value=source), \
+                    mock.patch("mikazuki.engines.musubi.environment.copy_source_snapshot"), \
+                    mock.patch("mikazuki.engines.musubi.environment._uv_command", return_value="uv"), \
+                    mock.patch("mikazuki.engines.musubi.environment._find_base_python", return_value=base_python), \
+                    mock.patch("mikazuki.engines.musubi.environment._run_streaming", side_effect=_capture), \
+                    mock.patch("mikazuki.engines.musubi.environment.audit_environment", return_value=audit):
+                result = install_environment(plan, lambda _line: None)
+            self.assertTrue(result.ok)
+            pip_installs = [cmd for cmd in commands if cmd[:3] == ["uv", "pip", "install"]]
+            self.assertEqual(len(pip_installs), 1)
+            install_cmd = pip_installs[0]
+            self.assertIn("https://pypi.tuna.tsinghua.edu.cn/simple", install_cmd)
+            self.assertIn("https://mirrors.aliyun.com/pytorch-wheels/cu128", install_cmd)
+            self.assertTrue(any(env and env.get("HF_ENDPOINT") == "https://hf-mirror.com" for env in envs))
+
+
+class AuditEnvironmentTests(unittest.TestCase):
+    def _ready_runtime(self, root: Path) -> RuntimeConfig:
+        runtime = make_runtime(root)
+        (runtime.musubi_root / "src" / "musubi_tuner").mkdir(parents=True)
+        runtime.python.parent.mkdir(parents=True)
+        runtime.python.write_text("", encoding="utf-8")
+        return runtime
+
+    def _fake_probe(self, tensorboard: bool):
+        stdout = f"3.12.0\n2.7.1+cu128\nTrue\n{tensorboard}\n"
+        return lambda *_a, **_k: subprocess.CompletedProcess([], 0, stdout=stdout)
+
+    def test_audit_ok_when_tensorboard_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime = self._ready_runtime(Path(td))
+            with mock.patch("mikazuki.engines.musubi.environment.subprocess.run", self._fake_probe(True)):
+                result = audit_environment(runtime)
+            self.assertTrue(result.ok, result.errors)
+            self.assertEqual(result.facts["tensorboard_available"], "True")
+
+    def test_audit_fails_when_tensorboard_missing(self):
+        with tempfile.TemporaryDirectory() as td:
+            runtime = self._ready_runtime(Path(td))
+            with mock.patch("mikazuki.engines.musubi.environment.subprocess.run", self._fake_probe(False)):
+                result = audit_environment(runtime)
+            self.assertFalse(result.ok)
+            self.assertTrue(any("tensorboard" in e for e in result.errors))
+
+
+class SettingsDiscoveryTests(unittest.TestCase):
+    def _ready_layout(self, root: Path):
+        layout = default_layout(root)
+        (layout.source / "src" / "musubi_tuner").mkdir(parents=True)
+        layout.venv_python.parent.mkdir(parents=True, exist_ok=True)
+        return layout
+
+    def _symlink_venv_python(self, venv_python: Path, base_python: Path) -> None:
+        base_python.parent.mkdir(parents=True, exist_ok=True)
+        base_python.write_text("", encoding="utf-8")
+        try:
+            venv_python.symlink_to(base_python)
+        except OSError as exc:
+            self.skipTest(f"symlinks unavailable: {exc}")
+
+    def test_prefers_extension_layout_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = self._ready_layout(root)
+            layout.venv_python.write_text("", encoding="utf-8")
+            runtime = discover_runtime(config={}, lora_next_root=root)
+            self.assertEqual(runtime.musubi_root, layout.source.resolve())
+            self.assertEqual(runtime.python.resolve(), layout.venv_python.resolve())
+
+    def test_falls_back_to_vendor(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runtime = discover_runtime(config={}, lora_next_root=root)
+            self.assertEqual(runtime.musubi_root, (root / "vendor" / "musubi-tuner").resolve())
+
+    def test_musubi_python_env_does_not_follow_resolve_hijack(self):
+        """Regression for #415 without requiring OS symlink privileges.
+
+        Simulate Linux venv ``bin/python`` → base by making ``Path.resolve()``
+        rewrite venv interpreter paths; discovery must keep ``absolute()``.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = self._ready_layout(root)
+            layout.venv_python.write_text("", encoding="utf-8")
+            hijacked = root / "base-without-site-packages" / layout.venv_python.name
+            real_resolve = Path.resolve
+
+            def fake_resolve(self, *args, **kwargs):
+                path = Path(self)
+                if ".venv" in path.parts and path.name in {"python", "python.exe", "python3"}:
+                    return hijacked
+                return real_resolve(self, *args, **kwargs)
+
+            with mock.patch.object(Path, "resolve", fake_resolve), mock.patch.dict(
+                os.environ, {"MUSUBI_PYTHON": str(layout.venv_python)}, clear=False
+            ):
+                runtime = discover_runtime(config={}, lora_next_root=root)
+            self.assertEqual(runtime.python, layout.venv_python.absolute())
+            self.assertNotEqual(runtime.python, hijacked)
+
+    def test_musubi_python_env_keeps_venv_symlink(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = self._ready_layout(root)
+            base_python = root / "base" / ("python.exe" if sys.platform == "win32" else "python")
+            self._symlink_venv_python(layout.venv_python, base_python)
+            self.assertEqual(layout.venv_python.resolve(), base_python.resolve())
+            with mock.patch.dict(os.environ, {"MUSUBI_PYTHON": str(layout.venv_python)}, clear=False):
+                runtime = discover_runtime(config={}, lora_next_root=root)
+            self.assertEqual(runtime.python, layout.venv_python.absolute())
+            self.assertNotEqual(runtime.python, base_python.resolve())
+
+    def test_config_venv_python_keeps_venv_symlink(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = self._ready_layout(root)
+            base_python = root / "base" / ("python.exe" if sys.platform == "win32" else "python")
+            self._symlink_venv_python(layout.venv_python, base_python)
+            config = {"backend": {"venv_python": str(layout.venv_python)}}
+            with mock.patch.dict(os.environ, {"MUSUBI_PYTHON": ""}, clear=False):
+                runtime = discover_runtime(config=config, lora_next_root=root)
+            self.assertEqual(runtime.python, layout.venv_python.absolute())
+            self.assertNotEqual(runtime.python, base_python.resolve())
+
+    def test_relative_musubi_python_stays_under_venv(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            layout = self._ready_layout(root)
+            base_python = root / "base" / ("python.exe" if sys.platform == "win32" else "python")
+            self._symlink_venv_python(layout.venv_python, base_python)
+            rel = layout.venv_python.relative_to(root).as_posix()
+            with mock.patch.dict(os.environ, {"MUSUBI_PYTHON": rel}, clear=False):
+                runtime = discover_runtime(config={}, lora_next_root=root)
+            self.assertEqual(runtime.python, (root / rel).absolute())
+            self.assertNotEqual(runtime.python, base_python.resolve())
+
+
+class PreflightTests(unittest.TestCase):
+    def _values_and_dataset(self, root: Path) -> tuple[dict, dict]:
+        musubi_root = root / "vendor" / "musubi-tuner"
+        musubi_root.mkdir(parents=True, exist_ok=True)
+        for name in (
+            "krea2_cache_latents.py",
+            "krea2_cache_text_encoder_outputs.py",
+            "krea2_train_network.py",
+        ):
+            (musubi_root / name).write_text("", encoding="utf-8")
+        models = root / "models"
+        models.mkdir(exist_ok=True)
+        for name in ("dit.safetensors", "vae.safetensors", "te.safetensors"):
+            (models / name).write_text("x", encoding="utf-8")
+        train = root / "train" / "4_char"
+        train.mkdir(parents=True)
+        (train / "a.png").write_text("x", encoding="utf-8")
+        (train / "a.txt").write_text("caption", encoding="utf-8")
+        values = {
+            "dit": str(models / "dit.safetensors"),
+            "vae": str(models / "vae.safetensors"),
+            "text_encoder": str(models / "te.safetensors"),
+        }
+        dataset = {
+            "general": {"caption_extension": ".txt"},
+            "datasets": [{"image_directory": str(train), "cache_directory": str(root / "cache"), "num_repeats": 4}],
+        }
+        return values, dataset
+
+    def test_ok_with_fake_probe(self):
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch("mikazuki.model_assets.dir_complete", return_value=True):
+            root = Path(td)
+            runtime = make_runtime(root)
+            runtime.python.parent.mkdir(parents=True, exist_ok=True)
+            runtime.python.write_text("", encoding="utf-8")
+            values, dataset = self._values_and_dataset(root)
+            probe = lambda rt: ProbeFacts(  # noqa: E731
+                python_version="3.12.0",
+                torch_version="2.7.1+cu128",
+                cuda_available=True,
+                transformers_version="4.57.6",
+                vram_total_mb=24576,
+            )
+            result = run_preflight(values, runtime, dataset, probe=probe)
+        self.assertTrue(result.ok, result.errors)
+        self.assertEqual(result.facts["dataset_image_count"], 1)
+
+    def test_missing_tokenizer_dir_fails(self):
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch("mikazuki.model_assets.dir_complete", return_value=False):
+            root = Path(td)
+            runtime = make_runtime(root)
+            values, dataset = self._values_and_dataset(root)
+            probe = lambda rt: ProbeFacts()  # noqa: E731
+            result = run_preflight(values, runtime, dataset, probe=probe)
+        self.assertFalse(result.ok)
+        self.assertTrue(any("tokenizer" in e for e in result.errors))
+
+    def test_missing_model_file_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            runtime = make_runtime(root)
+            values, dataset = self._values_and_dataset(root)
+            values["dit"] = str(root / "models" / "missing.safetensors")
+            probe = lambda rt: ProbeFacts()  # noqa: E731
+            result = run_preflight(values, runtime, dataset, probe=probe)
+        self.assertFalse(result.ok)
+        self.assertTrue(any("dit" in e for e in result.errors))
+
+    def test_old_transformers_fails(self):
+        with tempfile.TemporaryDirectory() as td, \
+                mock.patch("mikazuki.model_assets.dir_complete", return_value=True):
+            root = Path(td)
+            runtime = make_runtime(root)
+            runtime.python.parent.mkdir(parents=True, exist_ok=True)
+            runtime.python.write_text("", encoding="utf-8")
+            values, dataset = self._values_and_dataset(root)
+            probe = lambda rt: ProbeFacts(  # noqa: E731
+                python_version="3.12.0",
+                cuda_available=True,
+                transformers_version="4.51.3",
+            )
+            result = run_preflight(values, runtime, dataset, probe=probe)
+        self.assertFalse(result.ok)
+        self.assertTrue(any("transformers" in e for e in result.errors))
+
+
+if __name__ == "__main__":
+    unittest.main()

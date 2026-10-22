@@ -3696,6 +3696,7 @@ def get_sai_model_spec_dataclass(
     lumina: str = None,
     hunyuan_image: str = None,
     anima: str = None,
+    moss_image: str = None,
     optional_metadata: dict[str, str] | None = None,
 ) -> sai_model_spec.ModelSpecMetadata:
     """
@@ -3729,6 +3730,8 @@ def get_sai_model_spec_dataclass(
         model_config["hunyuan_image"] = hunyuan_image
     if anima is not None:
         model_config["anima"] = anima
+    if moss_image is not None:
+        model_config["moss_image"] = moss_image
     # Use the dataclass function directly
     return sai_model_spec.build_metadata_dataclass(
         state_dict,
@@ -5177,6 +5180,10 @@ def get_optimizer(args, trainable_params) -> tuple[str, str, object]:
                 logger.info(f"use D-Adaptation AdamPreprint optimizer | {optimizer_kwargs}")
             elif optimizer_type == "DAdaptAdaGrad".lower():
                 optimizer_class = dadaptation.DAdaptAdaGrad
+                # dadaptation 3.1 declares eps=0.0 but rejects non-positive eps
+                # during construction. Keep explicit user values and provide the
+                # conventional AdaGrad epsilon when the option is omitted.
+                optimizer_kwargs.setdefault("eps", 1e-8)
                 logger.info(f"use D-Adaptation AdaGrad optimizer | {optimizer_kwargs}")
             elif optimizer_type == "DAdaptAdam".lower():
                 optimizer_class = dadaptation.DAdaptAdam
@@ -5196,6 +5203,11 @@ def get_optimizer(args, trainable_params) -> tuple[str, str, object]:
             else:
                 raise ValueError(f"Unknown optimizer type: {optimizer_type}")
 
+            # dadaptation>=3.1 rejects its historical default eps=0.0
+            # for the Adam/AdaGrad/Adan variants, while Lion and SGD do
+            # not accept an eps argument at all. Keep explicit args intact.
+            if "eps" in optimizer_class.__init__.__code__.co_varnames:
+                optimizer_kwargs.setdefault("eps", 1e-8)
             optimizer = optimizer_class(trainable_params, lr=lr, **optimizer_kwargs)
         else:
             # Prodigy
@@ -5266,6 +5278,13 @@ def get_optimizer(args, trainable_params) -> tuple[str, str, object]:
         optimizer_class = Automagic
         # Automagic manages its own lr; pass lr as the starting point
         optimizer = optimizer_class(trainable_params, lr=lr if lr is not None else 1e-6, **optimizer_kwargs)
+
+    elif optimizer_type == "EmoSens".lower():
+        from library.optimizers.emosens import EmoSens
+        logger.info(f"use EmoSens optimizer (muooon/EmoSens, Apache-2.0) | {optimizer_kwargs}")
+        optimizer_class = EmoSens
+        # EmoSens generates LR autonomously via emoPulse; lr=1.0 is recommended
+        optimizer = optimizer_class(trainable_params, lr=lr if lr is not None else 1.0, **optimizer_kwargs)
 
     elif optimizer_type == "AdamW".lower():
         logger.info(f"use AdamW optimizer | {optimizer_kwargs}")

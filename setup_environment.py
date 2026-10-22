@@ -1,76 +1,44 @@
 # -*- coding: utf-8 -*-
 """
-SD-Trainer First-Run Environment Setup
+Next-Trainer First-Run Environment Setup
 
-Detects network, configures mirrors, installs PyTorch + dependencies.
+Detects network, configures mirrors, installs GUI dependencies.
+Training stacks (PyTorch, sd-scripts, ...) live in each engine pack's own
+managed venv and are installed from the UI (Settings -> Training Engines).
 Uses only Python stdlib -- runs before pip is available.
 """
 
-import locale
 import os
 import shutil
 import subprocess
 import sys
-import time
-import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ──────────────────── Configuration ────────────────────
 
-TORCH_VERSION = "2.7.0"
-TORCHVISION_VERSION = "0.22.0"
-CUDA_TAG = "cu128"
-PYTHON_TAG = "cp310"
-PLATFORM_TAG = "win_amd64"
-TORCH_WHEEL_NAME = (
-    f"torch-{TORCH_VERSION}+{CUDA_TAG}-{PYTHON_TAG}-{PYTHON_TAG}-{PLATFORM_TAG}.whl"
-)
-PROBE_BYTES = 32 * 1024 * 1024
-PROBE_MAX_SECONDS = 15
 
 MIRROR_PROFILES = {
     "china": {
         "label": "国内镜像 (阿里云 + 清华)",
-        "torch_find_links": f"https://mirrors.aliyun.com/pytorch-wheels/{CUDA_TAG}/",
         "pip_index_url": "https://pypi.tuna.tsinghua.edu.cn/simple",
         "pip_trusted_host": "pypi.tuna.tsinghua.edu.cn",
         "hf_endpoint": "https://hf-mirror.com",
     },
     "global": {
         "label": "Official Sources",
-        "torch_index_url": f"https://download.pytorch.org/whl/{CUDA_TAG}",
         "pip_index_url": None,
         "pip_trusted_host": None,
         "hf_endpoint": None,
     },
 }
 
-PYTORCH_SOURCES = [
-    {
-        "label": "阿里云 PyTorch Wheels",
-        "mode": "find-links",
-        "url": f"https://mirrors.aliyun.com/pytorch-wheels/{CUDA_TAG}/",
-    },
-    {
-        "label": "SJTUG PyTorch Wheels",
-        "mode": "index-url",
-        "url": f"https://mirror.sjtu.edu.cn/pytorch-wheels/{CUDA_TAG}",
-    },
-    {
-        "label": "PyTorch Official",
-        "mode": "index-url",
-        "url": f"https://download.pytorch.org/whl/{CUDA_TAG}",
-    },
-]
-
-DISK_SPACE_REQUIRED_GB = 7
+DISK_SPACE_REQUIRED_GB = 2
 
 # ──────────────────── Path helpers ────────────────────
 
 
 def _base_dir():
-    """Portable package root (parent of SD-Trainer/)."""
+    """Portable package root (parent of Next-Trainer/)."""
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
@@ -95,7 +63,7 @@ def _banner():
     w = 50
     print()
     print("╔" + "═" * w + "╗")
-    print("║" + "SD-Trainer 环境安装向导".center(w - 6) + "║")
+    print("║" + "Next-Trainer 环境安装向导".center(w - 6) + "║")
     print("╚" + "═" * w + "╝")
     print()
 
@@ -119,21 +87,91 @@ def _separator():
 # ──────────────────── Core logic ────────────────────
 
 
-def check_already_installed():
-    """Return True only when core runtime deps are importable."""
-    torch_dir = os.path.join(
-        _base_dir(), "python_embeded", "Lib", "site-packages", "torch"
-    )
-    if not os.path.isdir(torch_dir):
-        return False
+def _missing_requirements():
+    """Return requirement specs from requirements.txt that are not installed.
 
-    core_modules = ("torch", "torchvision", "accelerate", "diffusers", "gradio")
-    for module in core_modules:
+    Uses the embedded interpreter's own pip metadata so the check matches what
+    install_requirements would actually install. Triton-windows is skipped to
+    stay consistent with _filter_requirements.
+    """
+    req_file = os.path.join(_sd_trainer_dir(), "requirements.txt")
+    if not os.path.isfile(req_file):
+        return []
+
+    check_src = (
+        "import sys\n"
+        "try:\n"
+        "    from importlib.metadata import distributions\n"
+        "except Exception:\n"
+        "    print('CHECK_UNAVAILABLE'); sys.exit(0)\n"
+        "import re\n"
+        "skip = {'triton-windows', 'triton'}\n"
+        "installed = set()\n"
+        "for dist in distributions():\n"
+        "    name = (dist.metadata['Name'] or '').strip().lower().replace('_', '-')\n"
+        "    if name:\n"
+        "        installed.add(name)\n"
+        "missing = []\n"
+        "with open(sys.argv[1], 'r', encoding='utf-8-sig') as f:\n"
+        "    for raw in f:\n"
+        "        line = raw.strip()\n"
+        "        if not line or line.startswith('#') or line.startswith('-'):\n"
+        "            continue\n"
+        "        if '# skip_verify' in line:\n"
+        "            continue\n"
+        "        spec = line.split('#', 1)[0].strip()\n"
+        "        if ';' in spec:\n"
+        "            cond = spec.split(';', 1)[1]\n"
+        "            if 'win32' in cond and sys.platform != 'win32':\n"
+        "                continue\n"
+        "            if 'linux' in cond and sys.platform != 'linux':\n"
+        "                continue\n"
+        "            spec = spec.split(';', 1)[0].strip()\n"
+        "        name = re.split(r'[<>=!~\\[ ]', spec, 1)[0].strip().lower().replace('_', '-')\n"
+        "        if not name or name in skip:\n"
+        "            continue\n"
+        "        if name not in installed:\n"
+        "            missing.append(name)\n"
+        "for m in missing:\n"
+        "    print(m)\n"
+    )
+    try:
+        result = subprocess.run(
+            [_python_exe(), "-s", "-c", check_src, req_file],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "PYTHONNOUSERSITE": "1"},
+        )
+    except Exception:
+        return []
+    out = (result.stdout or "").strip()
+    if not out or "CHECK_UNAVAILABLE" in out:
+        return []
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
+GUI_CORE_MODULES = ("fastapi", "onnxruntime", "cv2", "tensorboard")
+
+
+def check_already_installed(quiet=False):
+    """Return True only when core runtime deps are importable AND every
+    requirements.txt package is present. A missing requirement (e.g. a newly
+    added onnxruntime-gpu after an update) triggers the repair install path."""
+    def _say(msg):
+        if not quiet:
+            print(msg)
+
+    for module in GUI_CORE_MODULES:
         try:
             __import__(module)
         except Exception as exc:
-            print(f"  检测到依赖不完整，将执行修复安装：{module} ({exc})")
+            _say(f"  检测到依赖不完整，将执行修复安装：{module} ({exc})")
             return False
+
+    missing = _missing_requirements()
+    if missing:
+        preview = ", ".join(missing[:8]) + (" ..." if len(missing) > 8 else "")
+        _say(f"  检测到缺失的依赖，将执行补装：{preview}")
+        return False
 
     return True
 
@@ -186,76 +224,6 @@ def _run_pip(args):
     return subprocess.call(cmd, env=env) == 0
 
 
-def _join_wheel_url(base_url):
-    return base_url.rstrip("/") + "/" + urllib.parse.quote(TORCH_WHEEL_NAME, safe="")
-
-
-def _probe_url(source, timeout=15):
-    # Measure real wheel throughput instead of only first-byte latency. Some
-    # mirrors respond quickly but download large wheels very slowly.
-    t0 = time.perf_counter()
-    wheel_url = _join_wheel_url(source["url"])
-    request = urllib.request.Request(
-        wheel_url,
-        headers={
-            "User-Agent": "SD-Trainer installer",
-            "Range": f"bytes=0-{PROBE_BYTES - 1}",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        status = getattr(response, "status", 200)
-        if status >= 400:
-            raise OSError(f"HTTP {status}")
-        bytes_read = 0
-        while (
-            bytes_read < PROBE_BYTES
-            and time.perf_counter() - t0 < PROBE_MAX_SECONDS
-        ):
-            chunk = response.read(min(1024 * 1024, PROBE_BYTES - bytes_read))
-            if not chunk:
-                break
-            bytes_read += len(chunk)
-
-    elapsed = max(time.perf_counter() - t0, 0.001)
-    if bytes_read <= 0:
-        raise OSError("empty response")
-    return {
-        **source,
-        "elapsed": elapsed,
-        "bytes_read": bytes_read,
-        "mbps": bytes_read / elapsed / (1024 * 1024),
-    }
-
-
-def probe_pytorch_sources():
-    """Probe PyTorch wheel sources concurrently and return them by speed."""
-    print("  正在测速 PyTorch 下载源...")
-    results = []
-    with ThreadPoolExecutor(max_workers=len(PYTORCH_SOURCES)) as executor:
-        futures = {
-            executor.submit(_probe_url, source): source
-            for source in PYTORCH_SOURCES
-        }
-        for future in as_completed(futures):
-            source = futures[future]
-            try:
-                result = future.result()
-                results.append(result)
-                print(
-                    f"    OK   {result['label']} "
-                    f"({result['mbps']:.1f} MB/s, {result['elapsed']:.2f}s)"
-                )
-            except Exception as exc:
-                print(f"    FAIL {source['label']} ({exc})")
-
-    if not results:
-        return []
-
-    results.sort(key=lambda item: (-item["mbps"], item["elapsed"]))
-    print(f"  已选择最快源: {results[0]['label']}")
-    return results
-
-
 def install_pip():
     get_pip = _get_pip_path()
     if not os.path.exists(get_pip):
@@ -270,37 +238,11 @@ def install_pip():
     ) == 0
 
 
-def install_torch(_region):
-    sources = probe_pytorch_sources()
-    if not sources:
-        _fail("所有 PyTorch 下载源均无法连接，请检查网络或代理设置后重试")
-        return False
-
-    for index, source in enumerate(sources):
-        if index:
-            print(f"  正在尝试备用源: {source['label']}")
-        args = [
-            "install",
-            f"torch=={TORCH_VERSION}+{CUDA_TAG}",
-            f"torchvision=={TORCHVISION_VERSION}+{CUDA_TAG}",
-            "--no-warn-script-location",
-        ]
-        if source["mode"] == "find-links":
-            args += ["-f", source["url"]]
-        else:
-            args += ["--index-url", source["url"]]
-        if _run_pip(args):
-            return True
-
-    _fail("所有可连接的 PyTorch 下载源均安装失败，请检查网络、代理或 pip 输出后重试")
-    return False
-
-
 def _filter_requirements(req_file):
     """Read requirements.txt, filtering out packages incompatible with embedded Python."""
     skip_packages = {"triton-windows", "triton"}
     filtered_path = req_file + ".filtered"
-    with open(req_file, "r", encoding="utf-8") as f:
+    with open(req_file, "r", encoding="utf-8-sig") as f:
         lines = f.readlines()
     with open(filtered_path, "w", encoding="utf-8") as f:
         for line in lines:
@@ -340,22 +282,34 @@ def write_mirror_env(region):
         os.environ["PIP_INDEX_URL"] = cfg["pip_index_url"]
 
 
-def verify_installation():
-    """Quick smoke test."""
-    result = subprocess.run(
-        [_python_exe(), "-s", "-c",
-         "import torch; print(f'PyTorch {torch.__version__}  CUDA {torch.version.cuda}')"],
-        capture_output=True, text=True, timeout=30,
-        env={**os.environ, "PYTHONNOUSERSITE": "1"},
-    )
-    if result.returncode == 0:
-        _ok(result.stdout.strip())
-        return True
-    _fail("PyTorch 验证失败")
-    return False
-
-
 # ──────────────────── Main ────────────────────
+
+
+def _core_modules_ok():
+    for module in GUI_CORE_MODULES:
+        try:
+            __import__(module)
+        except Exception:
+            return False
+    return True
+
+
+def repair_requirements_only():
+    """Fast path: core deps already present, only requirements.txt has
+    new/missing packages (e.g. onnxruntime-gpu added by an update). Install
+    just the requirements."""
+    _banner()
+    region = detect_network()
+    if region == "china":
+        print("  检测到缺失依赖，使用国内镜像补装组件...")
+    else:
+        print("  检测到缺失依赖，补装组件...")
+    write_mirror_env(region)
+    if not install_requirements(region):
+        _fail("依赖补装失败，请检查网络连接后重新运行 run_gui.bat")
+        return 1
+    _ok("依赖补装完成")
+    return 0
 
 
 def main():
@@ -364,6 +318,11 @@ def main():
     if check_already_installed():
         print("  环境已安装，跳过安装步骤。")
         return 0
+
+    # Lightweight repair: core deps are fine, only some
+    # requirements.txt packages are missing.
+    if _core_modules_ok() and _missing_requirements():
+        return repair_requirements_only()
 
     # GPU check — warn AMD users early
     gpu = detect_gpu()
@@ -403,35 +362,18 @@ def main():
         return 1
     print(" 完成")
 
-    # 3 — PyTorch
+    # 3 — requirements
     _separator()
-    _step(3, f"安装 PyTorch {TORCH_VERSION} (CUDA 12.8)")
-    print(f"       下载约 3 GB，请耐心等待...\n")
-    t0 = time.time()
-    if not install_torch(region):
-        _fail("PyTorch 安装失败，请检查网络连接后重新运行 run_gui.bat")
-        return 1
-    elapsed = time.time() - t0
-    _ok(f"PyTorch 安装完成 ({elapsed:.0f}s)")
-
-    # 4 — requirements
-    _separator()
-    _step(4, "安装训练组件 (transformers, diffusers, gradio ...)")
+    _step(3, "安装 GUI 组件 (fastapi, onnxruntime ...)")
     print()
     if not install_requirements(region):
-        _fail("训练组件安装失败，请检查网络连接后重新运行 run_gui.bat")
+        _fail("组件安装失败，请检查网络连接后重新运行 run_gui.bat")
         return 1
-    _ok("训练组件安装完成")
-
-    # Verify
-    _separator()
-    print("  验证安装...")
-    if not verify_installation():
-        return 1
+    _ok("组件安装完成")
 
     print()
     print("  ══════════════════════════════════════════════")
-    print("    环境安装完成！正在启动 SD-Trainer...")
+    print("    环境安装完成！正在启动 Next-Trainer...")
     print("  ══════════════════════════════════════════════")
     print()
     return 0

@@ -1,0 +1,15 @@
+# ai-toolkit 引擎包配置。
+# 上游固定版本在 mikazuki/engines/ai_toolkit/manifest.py 的 UPSTREAM["commit"]（安装请求里的
+# source_commit 可覆盖）；开发用外部源码树时设 AI_TOOLKIT_ROOT / AI_TOOLKIT_PYTHON 环境变量。
+[backend]
+source_dir = "extensions/ai_toolkit/source"
+venv_python = "extensions/ai_toolkit/.venv/Scripts/python.exe"
+cuda_extra = "cu128"
+
+[paths]
+output_dir = "output/ai-toolkit"
+logging_dir = "logs/ai-toolkit"
+cache_dir = ".cache/ai-toolkit"
+
+[features]
+enabled_env = "LORA_ENABLE_AI_TOOLKIT"

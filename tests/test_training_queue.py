@@ -32,6 +32,14 @@ def eventually(predicate):
     raise AssertionError('Timed out waiting for scheduler')
 
 
+def submit(manager, command, environ):
+    """Use upstream's explicit register + submit contract atomically."""
+    with manager._cond:
+        task = manager.create_task(command, environ)
+        manager.submit(task)
+        return task
+
+
 class QueueTests(unittest.TestCase):
     def setUp(self):
         self.manager = queue.TaskManager()
@@ -47,13 +55,13 @@ class QueueTests(unittest.TestCase):
     def tearDown(self):
         self.gate.set()
         for task in list(self.manager.tasks.values()):
-            if task.process is not None and task.process.poll() is None:
+            if getattr(task, "process", None) is not None and task.process.poll() is None:
                 task.process.kill()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.spy.stop()
 
     def submit(self, code='pass'):
-        return self.manager.create_task([sys.executable, '-c', code], os.environ)
+        return submit(self.manager, [sys.executable, '-c', code], os.environ)
 
     def hold_first(self, code="pass"):
         original_wait = queue.Task.wait
@@ -75,23 +83,23 @@ class QueueTests(unittest.TestCase):
         self.assertTrue(self.manager.terminate_task(cancelled.task_id))
         self.assertEqual(self.manager.dump()[-1]['queue_position'], 1)
         self.gate.set()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(self.started, [first.task_id, third.task_id])
         self.assertEqual(cancelled.status, queue.TaskStatus.TERMINATED)
         self.assertTrue(queue.hub.is_done(cancelled.task_id))
 
     def test_nonzero_exit_continues(self):
-        first = self.manager.create_task([sys.executable, '-c', 'raise SystemExit(3)'], os.environ)
+        first = submit(self.manager, [sys.executable, '-c', 'raise SystemExit(3)'], os.environ)
         second = self.submit()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(first.status, queue.TaskStatus.FAILED)
         self.assertEqual(first.returncode, 3)
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
 
     def test_launch_failure_continues(self):
-        first = self.manager.create_task(['this-executable-does-not-exist-queue-test'], os.environ)
+        first = submit(self.manager, ['this-executable-does-not-exist-queue-test'], os.environ)
         second = self.submit()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(first.status, queue.TaskStatus.FAILED)
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
 
@@ -105,7 +113,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(self.started, [first.task_id])
         expected = list(self.manager.tasks)
         self.gate.set()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(self.started, expected)
 
     def test_running_cancel_keeps_slot_until_exit(self):
@@ -116,7 +124,7 @@ class QueueTests(unittest.TestCase):
             kill.assert_called_once_with(first.process.pid, True)
         self.assertEqual(self.started, [first.task_id])
         self.gate.set()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(first.status, queue.TaskStatus.TERMINATED)
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
 
@@ -126,7 +134,7 @@ class QueueTests(unittest.TestCase):
         self.assertEqual(first.status, queue.TaskStatus.FAILED)
         self.assertFalse(self.manager._active)
         second = self.submit()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
 
     def test_stdout_thread_failure_reaps_process_before_next(self):
@@ -139,11 +147,11 @@ class QueueTests(unittest.TestCase):
         with patch.object(threading.Thread, 'start', start), patch.object(
                 queue, 'kill_proc_tree', side_effect=lambda pid, _: os.kill(pid, signal.SIGTERM)):
             first = self.submit('import time; time.sleep(60)')
-            eventually(lambda: not self.manager._active)
+            eventually(lambda: not self.manager._queue_busy_locked())
         self.assertIsNotNone(first.process.poll())
         self.assertEqual(first.status, queue.TaskStatus.FAILED)
         second = self.submit()
-        eventually(lambda: not self.manager._active)
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
 
     def test_stdout_eof_does_not_signal_training_done(self):
@@ -209,7 +217,7 @@ class ShutdownTests(unittest.TestCase):
         return task
 
     def finish(self, task, status=queue.TaskStatus.FINISHED):
-        with self.manager._lock:
+        with self.manager._cond:
             task.status = status
             self.manager._active.discard(task.task_id)
             self.manager._maybe_shutdown_locked()
@@ -259,8 +267,8 @@ class ShutdownTests(unittest.TestCase):
 
     def test_new_submission_cancels_old_timer_then_rearms(self):
         timer = self.arm_and_finish()
-        with patch.object(self.manager, '_schedule_locked'):
-            new = self.manager.create_task(['unused'], {})
+        with patch.object(self.manager, '_ensure_worker_locked'):
+            new = submit(self.manager, ['unused'], {})
         timer.fire()
         self.manager._shutdown_action.assert_not_called()
         self.assertTrue(timer.cancelled)
@@ -276,7 +284,7 @@ class ShutdownTests(unittest.TestCase):
         def fire():
             entered.set()
             timer.fire()
-        with self.manager._lock:
+        with self.manager._cond:
             thread = threading.Thread(target=fire)
             thread.start()
             self.assertTrue(entered.wait(2))
@@ -288,7 +296,7 @@ class ShutdownTests(unittest.TestCase):
     def test_slow_submission_protects_against_old_callback(self):
         timer = self.arm_and_finish()
         submission = threading.Event()
-        with self.manager._lock:
+        with self.manager._cond:
             thread = threading.Thread(target=timer.fire)
             thread.start()
             self.manager.begin_submission(submission)
@@ -308,7 +316,7 @@ class ShutdownTests(unittest.TestCase):
         timer = self.arm_and_finish()
         timer.fire()
         with self.assertRaises(RuntimeError):
-            self.manager.create_task(['unused'], {})
+            submit(self.manager, ['unused'], {})
         with self.assertRaises(RuntimeError):
             self.manager.begin_submission(threading.Event())
         with self.assertRaises(ValueError):
@@ -353,7 +361,7 @@ class ShutdownTests(unittest.TestCase):
                     manager.tasks['running'] = running
                     manager._active.add('running')
                     manager.set_shutdown(True)
-                    with manager._lock:
+                    with manager._cond:
                         running.status = queue.TaskStatus.FINISHED
                         manager._active.clear()
                         manager._maybe_shutdown_locked()
@@ -440,12 +448,12 @@ class ShutdownTests(unittest.TestCase):
 
     def test_real_jobs_trigger_only_after_last_job_exits(self):
         self.manager.set_shutdown(True)
-        with patch.object(self.manager, '_schedule_locked'):
-            first = self.manager.create_task([sys.executable, '-c', 'pass'], os.environ)
-            second = self.manager.create_task([sys.executable, '-c', 'pass'], os.environ)
-        with self.manager._lock:
-            self.manager._schedule_locked()
-        eventually(lambda: not self.manager._active)
+        with patch.object(self.manager, '_ensure_worker_locked'):
+            first = submit(self.manager, [sys.executable, '-c', 'pass'], os.environ)
+            second = submit(self.manager, [sys.executable, '-c', 'pass'], os.environ)
+        with self.manager._cond:
+            self.manager._ensure_worker_locked()
+        eventually(lambda: not self.manager._queue_busy_locked())
         self.assertEqual(first.status, queue.TaskStatus.FINISHED)
         self.assertEqual(second.status, queue.TaskStatus.FINISHED)
         self.assertEqual(len(self.timers), 1)
@@ -493,6 +501,38 @@ class ShutdownTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.manager.set_shutdown(True)
             self.assertFalse(self.manager.shutdown_status()['supported'])
+
+    def test_maintenance_completion_rechecks_shutdown(self):
+        task = self.manager.create_task([], {}, lane=queue.LANE_MAINTENANCE)
+        task.start_log_only()
+        self.manager.set_shutdown(True)
+        self.assertIsNone(self.manager.shutdown_status()['remaining_seconds'])
+        task.finish_log_only(0)
+        self.assertEqual(len(self.timers), 1)
+        self.manager._shutdown_action.assert_not_called()
+        self.timers[-1].fire()
+        self.manager._shutdown_action.assert_called_once()
+
+    def test_auto_retry_finishes_before_shutdown_countdown(self):
+        self.manager._auto_retry_max = 1
+        self.manager.set_shutdown(True)
+        submit(self.manager, [sys.executable, '-c', 'raise SystemExit(3)'], os.environ)
+        eventually(lambda: not self.manager._queue_busy_locked())
+        self.assertEqual(len(self.manager.tasks), 2)
+        self.assertTrue(all(t.status == queue.TaskStatus.FAILED for t in self.manager.tasks.values()))
+        self.assertEqual(len(self.timers), 1)
+        self.manager._shutdown_action.assert_not_called()
+        self.timers[-1].fire()
+        self.manager._shutdown_action.assert_called_once()
+
+    def test_cancel_last_waiting_task_starts_countdown(self):
+        with patch.object(self.manager, '_ensure_worker_locked'):
+            task = submit(self.manager, ['unused'], {})
+        self.manager.set_shutdown(True)
+        self.assertIsNone(self.manager.shutdown_status()['remaining_seconds'])
+        self.manager.terminate_task(task.task_id)
+        self.assertIsNotNone(self.manager.shutdown_status()['remaining_seconds'])
+        self.manager._shutdown_action.assert_not_called()
 
     def test_linux_shutdown_wrapper_without_shebang_uses_bash(self):
         import errno
@@ -586,7 +626,10 @@ class SubmissionRequestTests(unittest.IsolatedAsyncioTestCase):
         self.request = types.SimpleNamespace(body=body)
         namespace = dict(asyncio=asyncio, threading=threading, tm=self.manager,
             datetime=datetime, uuid=uuid, os=os, json=json,
-            train_utils=types.SimpleNamespace(fix_config_types=lambda config: None,
+            RunContext=lambda **kwargs: kwargs,
+            ensure_unique_output_name=lambda *args: None,
+            dispatch_run=lambda *args: None,
+            train_utils=types.SimpleNamespace(ensure_enable_preview_flag=lambda config: None, fix_config_types=lambda config: None,
                 get_total_images=lambda path: [], validate_data_dir=lambda path: False),
             normalize_custom_args=lambda config: None,
             apply_sdxl_prediction_type=lambda *args: None,

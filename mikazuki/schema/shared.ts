@@ -1,6 +1,6 @@
 (function () {
     const SAMPLE_PROMPTS_DEFAULT = "(masterpiece, best quality:1.2), 1girl, solo, --n lowres, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, low quality, normal quality, jpeg artifacts,signature, watermark, username, blurry,  --w 512  --h 768  --l 7  --s 24  --d 1337"
-    const SAMPLE_PROMPTS_DESCRIPTION = "预览图生成参数。可填写直接填写参数，或单独写入txt文件填写路径<br>`--n` 后方为反向提示词<br>`--w`宽，`--h`高<br>`--l`: CFG Scale<br>`--s`: 迭代步数<br>`--d`: 种子"
+    const SAMPLE_PROMPTS_DESCRIPTION = "预览图生成参数。可填写直接填写参数，或单独写入txt文件填写路径。`--n` 后方为反向提示词。`--w`宽，`--h`高。`--l`: CFG Scale。`--s`: 迭代步数。`--d`: 种子"
 
     let data = {
         RAW: {
@@ -50,7 +50,7 @@
                 conv_dim: Schema.number().default(4),
                 conv_alpha: Schema.number().default(1),
                 dropout: Schema.number().step(0.01).default(0).description('dropout 概率。推荐 0~0.5，LoHa/LoKr/(IA)^3暂不支持'),
-                train_norm: Schema.boolean().default(false).description('训练 Norm 层，不支持 (IA)^3'),
+                train_norm: Schema.boolean().default(false).description('训练 Norm 层，不支持 (IA)^3。Anima LoKr 会自动禁用 train_norm 以避免 LyCORIS NormModule 采样崩溃。'),
             }),
             Schema.object({}),
         ]),
@@ -93,7 +93,7 @@
 
         SAVE_SETTINGS: Schema.intersect([
             Schema.object({
-                output_name: Schema.string().default("aki").description("模型保存名称"),
+                output_name: Schema.string().default("next-lora").description("模型保存名称（Next Trainer 默认；建议按角色/风格自行改名）"),
                 output_dir: Schema.string().role('filepicker', { type: "folder" }).default("./output").description("模型保存文件夹"),
                 save_model_as: Schema.union(["safetensors", "pt", "ckpt"]).default("safetensors").description("模型保存格式"),
                 save_precision: Schema.union(["fp16", "float", "bf16"]).default("fp16").description("模型保存精度"),
@@ -140,6 +140,7 @@
                     "AdamW",
                     "AdamW8bit",
                     "Automagic",
+                    "EmoSens",
                     "PagedAdamW8bit",
                     "RAdamScheduleFree",
                     "Lion",
@@ -158,6 +159,76 @@
                     "prodigyplus.ProdigyPlusScheduleFree",
                     "pytorch_optimizer.CAME"
                 ]).default("AdamW8bit").description("优化器设置"),
+                min_snr_gamma: Schema.number().step(0.1).description("最小信噪比伽马值, 如果启用推荐为 5"),
+            }),
+
+            Schema.union([
+                Schema.object({
+                    optimizer_type: Schema.const('Prodigy').required(),
+                    prodigy_d0: Schema.string(),
+                    prodigy_d_coef: Schema.string().default("2.0"),
+                }),
+                Schema.object({}),
+            ]),
+
+            Schema.union([
+                Schema.object({
+                    optimizer_type: Schema.const('EmoSens').required(),
+                }).description("⚠ 选用 EmoSens 时请将学习率手动调至约 1.0（LoRA），优化器通过 emoPulse 自主生成 LR"),
+                Schema.object({}),
+            ]),
+
+            Schema.object({
+                optimizer_args_custom: Schema.array(String).role('table').description('自定义 optimizer_args，一行一个。同名参数会覆盖默认值（预览中可能显示重复，实际训练以此处为准）'),
+            })
+        ]),
+
+        ANIMA_FAST_LR_OPTIMIZER: Schema.intersect([
+            Schema.object({
+                learning_rate: Schema.string().default("1e-4").description("总学习率, 在分开设置 U-Net 与文本编码器学习率后这个值失效。"),
+                unet_lr: Schema.string().default("1e-4").description("U-Net 学习率"),
+                text_encoder_lr: Schema.string().default("1e-5").description("文本编码器学习率"),
+                lr_scheduler: Schema.union([
+                    "linear",
+                    "cosine",
+                    "cosine_with_restarts",
+                    "polynomial",
+                    "constant",
+                    "constant_with_warmup",
+                ]).default("cosine_with_restarts").description("学习率调度器设置"),
+                lr_warmup_steps: Schema.number().default(0).description('学习率预热步数'),
+                loss_type: Schema.union(["l1", "l2", "huber", "smooth_l1"]).description("损失函数类型"),
+            }).description("学习率与优化器设置"),
+
+            Schema.union([
+                Schema.object({
+                    lr_scheduler: Schema.const('cosine_with_restarts'),
+                    lr_scheduler_num_cycles: Schema.number().default(1).description('重启次数'),
+                }),
+                Schema.object({}),
+            ]),
+
+            Schema.object({
+                optimizer_type: Schema.union([
+                    "AdamW",
+                    "AdamW8bit",
+                    "PagedAdamW8bit",
+                    "RAdamScheduleFree",
+                    "Lion",
+                    "Lion8bit",
+                    "PagedLion8bit",
+                    "SGDNesterov",
+                    "SGDNesterov8bit",
+                    "DAdaptation",
+                    "DAdaptAdam",
+                    "DAdaptAdaGrad",
+                    "DAdaptAdanIP",
+                    "DAdaptLion",
+                    "DAdaptSGD",
+                    "AdaFactor",
+                    "Prodigy",
+                    "pytorch_optimizer.CAME",
+                ]).default("AdamW").description("优化器（仅 anima_lora Fast 已支持的选项）"),
                 min_snr_gamma: Schema.number().step(0.1).description("最小信噪比伽马值, 如果启用推荐为 5"),
             }),
 
@@ -239,6 +310,131 @@
             ddp_gradient_as_bucket_view: Schema.boolean(),
         }).description("分布式训练"),
 
+    }
+
+    // AI Toolkit forms share this factory; model modes come from the engine capability registry.
+    data.AI_TOOLKIT = function (spec) {
+        const integer = (value, min = 1) => Schema.number().min(min).step(1).default(value)
+        const path = (description, folder = true) => Schema.string().role('filepicker', { type: folder ? "folder" : "model-file" }).required().description(description)
+        const types = spec.train_types
+        const modelType = types.length > 1 ? Schema.union(types).default(types[0]) : Schema.string().default(types[0]).disabled()
+        const modelFields = {
+            model_train_type: modelType.description("训练模型 / Training model · " + spec.label),
+            model_input_mode: Schema.union(spec.modes).default(spec.modes[0]).description("模型输入模式 / Input mode：model_directory = 本地模型仓库目录；single_file = 单文件；comfyui_files = Comfy 组件文件。不会自动下载或转换"),
+        }
+        if (spec.variants) modelFields.model_variant = Schema.union(spec.variants).default(spec.variants[0]).description("底模版本 / Variant（请与权重一致）")
+        const sections = [Schema.object(modelFields).description("训练用模型 / Model")]
+        sections.push(Schema.union(spec.modes.map(mode => {
+            const fields = { model_input_mode: Schema.const(mode) }
+            if (mode === "model_directory") fields.model_path = path(spec.family === "klein"
+                ? "服务端 DiT 目录 / Local DiT directory（含所选版本的 flux-2-klein-*.safetensors；TE / VAE 另填）"
+                : spec.family === "krea2" ? "服务端 DiT 目录 / Local DiT directory（含 krea2.safetensors；TE / VAE 另填）"
+                : spec.family === "ideogram4" ? "服务端 Ideogram 4 目录 / Local model directory（含 transformer/ 与 vae/ 权重；TE 另填）"
+                : "服务端本地模型目录 / Local model directory（含配置、权重及 tokenizer）")
+            else fields.dit_path = path(spec.family === "ideogram4"
+                ? "底模权重 / Model weights（Comfy-Org 条件 DiT 单文件；原位读取，不修改原文件）"
+                : "底模权重 / Model weights（本地 safetensors；不修改原文件）", false)
+            if ((spec.family === "sdxl" && mode === "single_file") || (mode === "comfyui_files" && spec.family !== "ideogram4")) {
+                fields.model_config_dir = path("本地组件配置与 tokenizer 仓库 / Local configs and tokenizers（model_index.json 及各组件 config.json）")
+            }
+            if (spec.family === "sd15" && mode === "single_file") {
+                // Only pipeline configs + tokenizer live here; the checkpoint stays a
+                // single Comfy/LDM file. Downloadable from the model assets panel.
+                fields.model_config_dir = Schema.string().role('filepicker', { type: "folder" })
+                    .default("./sd-models/sd15/config")
+                    .description("SD 1.5 配置与 tokenizer 目录 / Local configs and tokenizers（model_index.json 及各组件 config.json，不含权重；留空即用「训练用模型」面板下载的默认路径）")
+            }
+            if (["klein", "krea2"].includes(spec.family) || (mode === "comfyui_files" && spec.family !== "ideogram4")) {
+                fields.text_encoder_path = path("文本编码器 / Text encoder（" + (spec.family === "klein" ? "4B 用 Qwen3-4B，9B 用 Qwen3-8B 本地目录" : spec.family === "krea2" ? "Qwen3-VL 本地目录" : "Qwen3-VL-8B BF16 文件") + "）", mode !== "comfyui_files")
+                fields.vae_path = path("VAE（" + (spec.family === "klein" ? "FLUX.2 ae.safetensors 文件" : spec.family === "krea2" ? "Qwen-Image VAE 目录，含配置及权重" : "Qwen-Image-2.1 BF16 文件") + "）", spec.family === "krea2")
+            }
+            if (spec.family === "ideogram4") {
+                if (mode === "comfyui_files") {
+                    // Comfy-Org single files, read in place by the pack driver. The FP8
+                    // text encoder file carries the weights; tokenizer/config still come
+                    // from a local directory (upstream's tokenizer loader needs one).
+                    fields.text_encoder_path = path("文本编码器 / Text encoder（Qwen3-VL-8B FP8 单文件，Comfy-Org qwen3vl_8b_fp8_scaled.safetensors；原位读取）", false)
+                    fields.text_encoder_tokenizer_path = path("Qwen3-VL-8B config/tokenizer 目录（供上面的单文件加载）", true)
+                    fields.vae_path = path("VAE（Flux2 单文件，Comfy-Org flux2-vae.safetensors；原位读取）", false)
+                } else {
+                    fields.text_encoder_path = path("文本编码器 / Text encoder（Qwen3-VL-8B 本地目录，含 config、tokenizer 与权重）", true)
+                }
+                // Optional: only used for the unconditional (negative) CFG sampling
+                // pass; leaving it empty keeps single-DiT CFG sampling.
+                fields.unconditional_lora_path = Schema.string().role('filepicker', { type: "model-file" })
+                    .description("可选：无条件采样 LoRA 路径（非对称 CFG 预览用；不填则采样走单 DiT CFG）")
+            }
+            return Schema.object(fields)
+        })))
+        if (spec.editing) {
+            sections.push(Schema.object({ training_task: Schema.union(["text-to-image", "image-edit"]).default("text-to-image").description("训练任务 / Task：文生图 / 图像编辑") }).description("数据集设置 / Dataset"))
+        }
+        sections.push(Schema.object({
+            train_data_dir: path("训练数据集路径 / Target images and captions").role('filepicker', { type: "folder", internal: "train-dir" }).default("./train/aki"),
+            resolution: Schema.string().default("1024,1024").required().description("分辨率 / Resolution（宽,高取长边，64 的倍数；自动分桶）"),
+            caption_extension: Schema.string().default(".txt").description("标签扩展名 / Caption extension"),
+            caption_dropout_rate: Schema.number().min(0).max(1).step(.01).default(0).description("标签丢弃概率 / Caption dropout"),
+            shuffle_caption: Schema.boolean().default(false).description("打乱标签 / Shuffle caption"),
+            dataset_repeats: integer(1).description("数据集重复次数 / Repeats（与 N_子目录重复次数相乘）"),
+            cache_latents_to_disk: Schema.boolean().default(true).description("缓存 latent 到磁盘 / Cache latents to disk"),
+        }).description("数据集设置 / Dataset"))
+        if (spec.editing) sections.push(Schema.union([
+            Schema.object({ training_task: Schema.const("image-edit"), control_data_dirs: Schema.array(String).role('reference-paths', { internal: "train-dir" }).min(1).max(5).required().description("参考图目录 / Reference directories（1–5 组，按相对目录与同名图片配对）") }),
+            Schema.object({ training_task: Schema.const("text-to-image") }),
+        ]))
+        sections.push(Schema.object({
+            output_name: Schema.string().default("next-" + spec.family + "-lora").required().description("模型保存名称 / Output name"),
+            output_dir: path("模型保存目录 / Output directory").default("./output"),
+            save_precision: Schema.union(["bf16", "fp16", "float"]).default("bf16").description("保存精度 / Save precision"),
+            save_every_n_steps: integer(250).description("每 N 步保存 / Save every N steps"),
+            save_last_n_steps: integer(4).description("保留最近 N 个存档 / Keep last N saves"),
+        }).description("保存设置 / Saving"))
+        sections.push(Schema.object({
+            max_train_steps: integer(2000).description("最大训练步数 / Training steps（不使用 epoch）"),
+            train_batch_size: integer(1).description("批量大小 / Batch size"),
+            gradient_accumulation_steps: integer(1).description("梯度累积 / Gradient accumulation"),
+            gradient_checkpointing: Schema.boolean().default(true).description("梯度检查点 / Gradient checkpointing"),
+            mixed_precision: Schema.union(["bf16", "fp16", "float32"]).default("bf16").description("训练精度 / Training precision"),
+            max_grad_norm: Schema.number().min(.001).step(.1).default(1).description("梯度裁剪阈值 / Gradient clipping（必须大于 0；上游 0 会清零梯度）"),
+            seed: integer(42, 0).max(4294967295).description("随机种子 / Seed（0 有效）"),
+        }).description("训练参数 / Training"))
+        if (spec.quantization !== false) {
+            sections.push(Schema.object({
+                quantize: Schema.boolean().default(true).description("DiT 量化 / Quantize model"),
+                quantize_te: Schema.boolean().default(true).description("文本编码器量化 / Quantize text encoder"),
+                qtype: Schema.union(["qfloat8", "qint8", "qint4"]).default("qfloat8").description("量化方式 / Quantization"),
+                low_vram: Schema.boolean().default(false).description("低显存模式 / Low VRAM"),
+                layer_offloading: Schema.boolean().default(false).description("层卸载 / Layer offloading（更慢）"),
+            }).description("显存设置 / Memory"))
+        }
+        sections.push(Schema.object({
+            learning_rate: Schema.string().default("1e-4").required().description("学习率 / Learning rate"),
+            lr_scheduler: Schema.union(["constant", "linear", "cosine"]).default("constant").description("学习率调度 / LR schedule（linear 从初始学习率衰减至 0）"),
+            optimizer_type: Schema.union(["AdamW", "AdamW8bit", "Adafactor"]).default("AdamW8bit").description("优化器 / Optimizer"),
+            use_ema: Schema.boolean().default(false).description("EMA 平滑 / EMA"),
+        }).description("学习率与优化器 / Learning rate and optimizer"))
+        sections.push(Schema.union([
+            Schema.object({ use_ema: Schema.const(true), ema_decay: Schema.number().min(0).max(1).step(.001).default(.99).description("EMA 衰减 / EMA decay") }),
+            Schema.object({ use_ema: Schema.const(false) }),
+        ]))
+        sections.push(Schema.object({
+            network_dim: integer(16).description("LoRA Rank"),
+            network_alpha: Schema.number().min(.001).default(16).description("LoRA Alpha"),
+            trigger_word: Schema.string().description("触发词 / Trigger word（可选）"),
+        }).description("网络设置 / Network"))
+        sections.push(Schema.object({ enable_preview: Schema.boolean().default(false).description("训练预览 / Training previews") }).description("预览设置 / Preview"))
+        sections.push(Schema.union([
+            Schema.object({
+                enable_preview: Schema.const(true),
+                sample_every_n_steps: integer(250).description("每 N 步预览 / Sample every N steps"),
+                sample_at_first: Schema.boolean().default(false).description("训练前先预览 / Sample before training"),
+                ...(["sdxl", "sd15"].includes(spec.family) ? { negative_prompts: Schema.string().role("textarea").description("反向提示词 / Negative prompt") } : {}),
+                preview_samples: Schema.array(String).role('preview-samples', { dimensionStep: spec.sample_multiple || 16, minGuidance: 0 }).default(['{"prompt":"a photo","width":1024,"height":1024,"seed":42,"guidance_scale":4,"sample_steps":20,"controlImages":[]}']).description("预览样例 / Samples（宽高为 " + (spec.sample_multiple || 16) + " 的倍数；编辑预览每组 1–3 张参考图）"),
+            }),
+            Schema.object({ enable_preview: Schema.const(false) }),
+        ]))
+        sections.push(Schema.object({ logging_dir: path("日志目录 / Log directory").default("./logs") }).description("日志设置 / Logging"))
+        return Schema.intersect(sections)
     }
 
     return data

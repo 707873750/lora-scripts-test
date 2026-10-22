@@ -1,0 +1,111 @@
+import type { TrainingEngine } from "../training/modules"
+
+/** Shared runtime lifecycle for optional / planned engines. */
+export type EngineRuntimeState =
+  | "ready"
+  | "not_installed"
+  | "unknown"
+  | "installing"
+  | "auditing"
+  | "broken"
+  | "disabled"
+  | "coming_soon"
+  | "installed_unverified"
+
+export type EngineKind = "builtin" | "optional" | "planned"
+
+export interface EngineDefinition {
+  id: TrainingEngine
+  kind: EngineKind
+  /** i18n key under settings.engines.catalog.<id> */
+  nameKey: string
+  summaryKey: string
+  /** Shown for optional engines that download large runtimes. */
+  sizeHintKey?: string
+  requiresGpu?: boolean
+  managesRuntime: boolean
+  /** Short mark for logo tile (UI). */
+  mark: string
+  /** Capability tags shown on cards (i18n keys under settings.engines.tags.*). */
+  tags: readonly string[]
+  /** Display version (UI metadata; not a live feed). */
+  version: string
+  /** Display last-updated date (UI metadata). */
+  updatedAt: string
+  recommended?: boolean
+}
+
+/** Product cold-start / global default engine (Kohya). UI-only marker. */
+export const PRODUCT_DEFAULT_ENGINE: TrainingEngine = "kohya"
+
+export const ENGINE_CATALOG: readonly EngineDefinition[] = [
+  {
+    id: "kohya",
+    kind: "optional",
+    nameKey: "settings.engines.catalog.kohya.name",
+    summaryKey: "settings.engines.catalog.kohya.summary",
+    sizeHintKey: "settings.engines.catalog.kohya.sizeHint",
+    requiresGpu: true,
+    managesRuntime: true,
+    mark: "K",
+    tags: ["lora", "sd15", "sdxl", "flux", "anima", "moss-image"],
+    version: "plugin",
+    updatedAt: "2026-09",
+  },
+  {
+    id: "anima-fast",
+    kind: "optional",
+    nameKey: "settings.engines.catalog.anima-fast.name",
+    summaryKey: "settings.engines.catalog.anima-fast.summary",
+    sizeHintKey: "settings.engines.catalog.anima-fast.sizeHint",
+    requiresGpu: true,
+    managesRuntime: true,
+    mark: "AF",
+    tags: ["lora", "anima", "nvidia"],
+    version: "plugin",
+    updatedAt: "2026-08",
+    recommended: true,
+  },
+  {
+    id: "musubi",
+    kind: "optional",
+    nameKey: "settings.engines.catalog.musubi.name",
+    summaryKey: "settings.engines.catalog.musubi.summary",
+    sizeHintKey: "settings.engines.catalog.musubi.sizeHint",
+    requiresGpu: true,
+    managesRuntime: true,
+    mark: "M",
+    tags: ["lora", "krea2", "ideogram4", "nvidia"],
+    version: "plugin",
+    updatedAt: "2026-08",
+  },
+  {
+    id: "ai-toolkit",
+    kind: "optional",
+    nameKey: "settings.engines.catalog.ai-toolkit.name",
+    summaryKey: "settings.engines.catalog.ai-toolkit.summary",
+    sizeHintKey: "settings.engines.catalog.ai-toolkit.sizeHint",
+    requiresGpu: true,
+    managesRuntime: true,
+    mark: "AT",
+    tags: ["lora", "sdxl", "flux", "klein", "krea2", "anima", "qwen-image-21", "nvidia"],
+    version: "plugin",
+    updatedAt: "2026-08",
+  },
+  {
+    id: "diffsynth", kind: "optional", nameKey: "settings.engines.catalog.diffsynth.name",
+    summaryKey: "settings.engines.catalog.diffsynth.summary", sizeHintKey: "settings.engines.catalog.diffsynth.sizeHint",
+    requiresGpu: true, managesRuntime: true, mark: "DS", tags: ["lora", "qwen-image-21", "nvidia"],
+    version: "plugin", updatedAt: "2026-09",
+  },
+  {
+    id: "moss", kind: "optional", nameKey: "settings.engines.catalog.moss.name",
+    summaryKey: "settings.engines.catalog.moss.summary", sizeHintKey: "settings.engines.catalog.moss.sizeHint",
+    requiresGpu: true, managesRuntime: true, mark: "MO", tags: ["lora", "moss-image", "nvidia"],
+    version: "alpha", updatedAt: "2026-10",
+  },
+] as const
+
+export function engineDefinition(id: TrainingEngine): EngineDefinition | undefined {
+  return ENGINE_CATALOG.find((engine) => engine.id === id)
+}

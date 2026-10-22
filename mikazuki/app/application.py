@@ -7,7 +7,7 @@ import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -19,9 +19,19 @@ from mikazuki.app.api import router as api_router
 # from mikazuki.app.ipc import router as ipc_router
 from mikazuki.app.proxy import router as proxy_router
 from mikazuki.utils.devices import check_torch_gpu
+from mikazuki.spa import (
+    should_fallback_to_spa,
+)
 
 mimetypes.add_type("application/javascript", ".js")
 mimetypes.add_type("text/css", ".css")
+
+# Dist bundles patched in-repo keep the same content hash filename; do not
+# treat them as immutable or browsers keep stale JS after git pull / release update.
+_IN_PLACE_PATCHED_DIST_ASSETS = frozenset({
+    "/assets/app.547295de.js",
+    "/assets/layout.96d49288.js",
+})
 
 
 def frontend_dist_path() -> Path:
@@ -40,7 +50,7 @@ class SPAStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except HTTPException as ex:
-            if ex.status_code == 404:
+            if should_fallback_to_spa(path, ex.status_code):
                 return await super().get_response("index.html", scope)
             else:
                 raise ex
@@ -75,7 +85,11 @@ def _start_url() -> str:
     page = os.environ.get("MIKAZUKI_START_PAGE", _DEFAULT_START_PAGE).strip() or _DEFAULT_START_PAGE
     if not page.startswith("/"):
         page = f"/{page}"
-    return f'http://{os.environ["MIKAZUKI_HOST"]}:{os.environ["MIKAZUKI_PORT"]}{page}'
+    host = os.environ["MIKAZUKI_HOST"]
+    host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(host, host)
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f'http://{host}:{os.environ["MIKAZUKI_PORT"]}{page}'
 
 
 async def _async_update_check():
@@ -90,14 +104,35 @@ async def _async_update_check():
 async def app_startup():
     app_config.load_config()
 
+    from mikazuki.tasks import tm
+    tm.enable_persistence()
+    tm.restore_queue()
+
     await load_schemas()
     await load_presets()
     await asyncio.to_thread(check_torch_gpu)
 
     asyncio.create_task(_async_update_check())
 
-    if sys.platform == "win32" and os.environ.get("MIKAZUKI_DEV", "0") != "1":
-        import time
+    # Re-activate marketplace plugins the user left enabled: their runtimes
+    # are child processes that died with the previous host process, so without
+    # this the floating panel shows a still-enabled plugin as "not ready"
+    # until a manual restart. Fire-and-forget — a plugin runtime can take up
+    # to its startup timeout, and a broken one must never block app startup.
+    from mikazuki.plugin_marketplace.api import startup_apply_trust_update, startup_resume_enabled
+
+    # P1-5: chain-verified trust update (rotation/revocation) BEFORE plugin
+    # resume, so everything that follows verifies against the new trust.
+    # Fast file IO; never raises (a broken update keeps the shipped trust).
+    startup_apply_trust_update()
+    asyncio.create_task(asyncio.to_thread(startup_resume_enabled))
+
+    open_browser = os.environ.get("MIKAZUKI_OPEN_BROWSER")
+    if open_browser == "1" or (
+        open_browser is None
+        and sys.platform == "win32"
+        and os.environ.get("MIKAZUKI_DEV", "0") != "1"
+    ):
         from mikazuki.log import log as app_log
 
         browser = _resolve_browser()
@@ -105,10 +140,7 @@ async def app_startup():
             app_log.info(f"Using browser: {os.environ.get('MIKAZUKI_BROWSER', 'default')}")
 
         browser.open(_start_url())
-        monitor_port = os.environ.get("TRAIN_MONITOR_PORT", "6008")
-        time.sleep(1)
-        app_log.info(f"Opening train monitor in browser: http://127.0.0.1:{monitor_port}")
-        browser.open(f'http://127.0.0.1:{monitor_port}')
+        # The integrated monitor stays inside the GUI, without a separate tab.
 
 
 @asynccontextmanager
@@ -156,6 +188,7 @@ async def add_cache_control_header(request, call_next):
     path = request.url.path
     if (
         path.endswith(".html")
+        or path in _IN_PLACE_PATCHED_DIST_ASSETS
         or path.endswith("/assets/tagger-progress.js")
         or path.endswith("/assets/sd-trainer-brand.js")
         or path.endswith("/assets/dataset-editor.js")
@@ -163,13 +196,15 @@ async def add_cache_control_header(request, call_next):
         or path.endswith("/assets/dataset-editor-entry.js")
     ):
         response.headers["Cache-Control"] = "no-cache, must-revalidate"
-    elif re.search(r"\.[a-f0-9]{8}\.(js|css|webp)$", path):
+    elif re.search(r"-[A-Za-z0-9_-]{8}\.(js|css|webp)$", path):
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
     else:
         response.headers["Cache-Control"] = "max-age=0"
     return response
 
 app.include_router(api_router, prefix="/api")
+from mikazuki.networking.api import router as network_router
+app.include_router(network_router, prefix="/api")
 # app.include_router(ipc_router, prefix="/ipc")
 
 _TRAIN_LOG_HTML = Path(__file__).resolve().parent.parent / "static" / "train_log.html"
@@ -183,17 +218,16 @@ async def train_log_viewer():
     return FileResponse(str(_TRAIN_LOG_HTML))
 
 
-@app.get("/train-monitor")
-async def train_monitor_redirect():
-    """Open the lightweight monitor on the actual runtime port."""
-    monitor_port = os.environ.get("TRAIN_MONITOR_PORT", "6008")
-    return RedirectResponse(url=f"http://127.0.0.1:{monitor_port}", status_code=302)
-
-
 @app.get("/lora/sdxl.html")
 async def lora_sdxl_redirect():
     """Legacy SDXL page → unified Stable Diffusion (master) entry."""
     return RedirectResponse(url="/lora/master.html", status_code=302)
+
+
+@app.get("/lora/anima-fast")
+async def lora_anima_fast_redirect():
+    """VuePress alias without .html → static dist page."""
+    return RedirectResponse(url="/lora/anima-fast.html", status_code=302)
 
 
 @app.get("/")

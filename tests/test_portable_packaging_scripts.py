@@ -1,7 +1,32 @@
 from pathlib import Path
+import re
+import runpy
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_raw_bootstrap_batch_downloads_are_crlf_in_git():
+    common = (ROOT / "scripts/portable/portable_updater_common.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    for path in set(re.findall(r'Src = "([^"]+\.bat)"', common)):
+        payload = subprocess.check_output(["git", "-C", str(ROOT), "show", f"HEAD:{path}"])
+        assert b"\r\n" in payload, path
+        assert b"\n" not in payload.replace(b"\r\n", b""), path
+        assert not payload.startswith(b"\xef\xbb\xbf"), path
+
+
+def test_bootstrap_download_manifest_matches_git_allowlist():
+    common = (ROOT / "scripts/portable/portable_updater_common.ps1").read_text(
+        encoding="utf-8-sig"
+    )
+    destinations = re.findall(r'Dest = "Next-Trainer/([^"]+)"', common)
+    helper = runpy.run_path(str(ROOT / "scripts/portable/portable_git.py"))
+    assert set(destinations) == set(helper["BOOTSTRAP_FILES"])
+    for path in destinations:
+        assert (ROOT / path).is_file(), path
 
 
 def test_packaged_update_helper_delegates_to_root_updater():
@@ -9,9 +34,18 @@ def test_packaged_update_helper_delegates_to_root_updater():
         encoding="utf-8"
     )
 
-    assert "Update-SD-Trainer.bat" in script
-    assert "call `\"%~dp0..\\Update-SD-Trainer.bat`\" %*" in script
+    assert "Update-Next-Trainer.bat" in script
+    assert "call `\"%~dp0..\\Update-Next-Trainer.bat`\" %*" in script
     assert "git pull`r`n" not in script
+
+
+def test_portable_builder_skips_unavailable_offline_marketplace_by_default():
+    script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "$SkipMarketplace = -not $IncludeMarketplace" in script
+    assert "pass -IncludeMarketplace to opt in" in script
 
 
 def test_portable_builder_embeds_git_metadata_for_updates():
@@ -20,26 +54,54 @@ def test_portable_builder_embeds_git_metadata_for_updates():
     )
 
     assert "Clone-SDTrainerGitMetadata" in script
-    assert "SD-Trainer\\.git" in script
-    assert "--depth=1" in script
+    assert 'portable_git.py") seed --source $ProjectRoot' in script
+    assert 'portable_git.py") verify --trainer-dir $sdtDir' in script
+    assert 'tests/test_portable_git_behavior.py' in script
 
 
-def test_portable_builder_initializes_dataset_tag_editor_before_copy():
+def test_portable_builder_no_longer_requires_dataset_tag_editor():
     script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
         encoding="utf-8"
     )
+    copy_project = (ROOT / "build-scripts" / "03-copy-project.ps1").read_text(
+        encoding="utf-8"
+    )
+    updater = (ROOT / "scripts" / "portable" / "templates" / "Update-Next-Trainer.bat").read_text(
+        encoding="utf-8"
+    )
+    run_gui_sh = (ROOT / "run_gui.sh").read_text(encoding="utf-8")
 
-    assert "mikazuki/dataset-tag-editor" in script
-    assert "dataset-tag-editor\\scripts\\launch.py" in script
+    assert "dataset-tag-editor" not in script
+    assert "Initialize-DatasetTagEditor" not in script
+    assert "dataset-tag-editor" not in updater
+    assert "try_submodule" not in updater
+    assert "git submodule update" not in copy_project
+    assert "git submodule update" not in run_gui_sh
 
 
-def test_portable_launcher_keeps_default_hf_mirror_for_skip_prepare_mode():
+def test_portable_launcher_uses_auto_hub_backend_without_forcing_modelscope():
     launcher = (ROOT / "scripts" / "portable" / "launch_portable.bat").read_text(
         encoding="utf-8"
     )
 
-    assert "HF_ENDPOINT" in launcher
-    assert "https://hf-mirror.com" in launcher
+    assert "MIKAZUKI_HUB_BACKEND=auto" in launcher
+    assert "MIKAZUKI_HUB_BACKEND=modelscope" not in launcher
+    assert "MIKAZUKI_TOKENIZER_CACHE_DIR" in launcher
+    assert "prefetch_sdxl_tokenizer.py" in launcher
+    assert "-u gui.py" in launcher
+    assert 'gui.py --skip-prepare-environment' in launcher
+    gui_line = next(line for line in launcher.splitlines() if "gui.py" in line and "PYTHON_EXE" in line)
+    assert "2>>" not in gui_line
+
+
+def test_portable_builder_bundles_sdxl_tokenizer_cache():
+    script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "prefetch_sdxl_tokenizer.py" in script
+    assert "tokenizer-cache" in script
+    assert "openai_clip-vit-large-patch14" in script
 
 
 def test_portable_builder_bundles_visible_tagger_models_directory():
@@ -55,3 +117,148 @@ def test_portable_builder_bundles_visible_tagger_models_directory():
     assert "tagger-models\\vlm" in script
     assert "--tagger-models-dir" in script
     assert "MIKAZUKI_TAGGER_MODELS_DIR" in launcher
+
+
+def test_portable_archive_temporarily_removes_root_data_junctions():
+    script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    for name in ("sd-models", "output", "logs", "train"):
+        assert name in script
+    assert "$archiveJunctionNames" in script
+    assert "rmdir" in script
+    assert "ReparsePoint" in script
+    assert "$pythonExe -s $linkScript --trainer-dir $sdtDir" in script
+    assert "refusing to archive non-empty generated data directory" in script
+    assert 'Where-Object { $_.Name -notin @(".gitkeep", ".keep") }' in script
+    assert "-xr!" not in script
+
+
+def test_portable_builder_bundles_dual_update_scripts():
+    script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
+        encoding="utf-8"
+    )
+    release_ps1 = (
+        ROOT / "scripts" / "portable" / "update_from_release.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "Update-Next-Trainer-Release.bat" in script
+    assert "update_from_release.bat" in script
+    assert "Next-Trainer-v*.7z" in release_ps1 or "Next-Trainer-v" in release_ps1
+    assert "SD-Trainer-v*.7z" in release_ps1 or "SD-Trainer-v" in release_ps1
+    assert "extensions" in release_ps1
+    assert '"/XD", "config", "sd-models", "output", "logs", "train"' in release_ps1
+    assert 'assets\\config.json' in release_ps1
+
+
+def test_release_updater_forces_overwrite_for_same_version_republish():
+    release_ps1 = (
+        ROOT / "scripts" / "portable" / "update_from_release.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "/XO" not in release_ps1
+    assert "/IS" in release_ps1
+    assert "portable_release_sync" in release_ps1
+    assert "PORTABLE_BUILD" in release_ps1
+
+
+def test_release_updater_preserves_existing_kohya_engine_environment():
+    release_ps1 = (
+        ROOT / "scripts" / "portable" / "update_from_release.ps1"
+    ).read_text(encoding="utf-8")
+
+    assert "Kohya" in release_ps1
+    assert "kohya" in release_ps1
+    assert "must never be merged" in release_ps1
+    assert "Kohya runtime disappeared" in release_ps1
+
+
+def test_portable_verifier_checks_current_user_data_exclusions():
+    verifier = (
+        ROOT / "scripts" / "portable" / "verify_portable_updaters.ps1"
+    ).read_text(encoding="utf-8-sig")
+
+    assert '"/XD", "config"' in verifier
+    assert "assets\\config.json" in verifier
+    assert "missingUserDataMarkers" in verifier
+
+
+def test_portable_builder_writes_portable_build_metadata():
+    script = (ROOT / "build-scripts" / "build_portable.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "Write-PortableBuildMetadata" in script
+    assert "PORTABLE_BUILD" in script
+    assert "scripts\\portable\\templates" in script
+
+
+def test_portable_git_updater_is_not_legacy_pull_only():
+    bat = (ROOT / "build-scripts" / "templates" / "Update-Next-Trainer.bat").read_text(
+        encoding="utf-8"
+    )
+    assert "Pulling latest code" not in bat
+    assert 'not exist ".git\\"' in bat
+    assert "print_version_info" in bat
+    assert "UPDATER_VERSION" in bat
+
+
+def test_portable_updater_version_file_exists():
+    version_file = ROOT / "scripts" / "portable" / "UPDATER_VERSION"
+    assert version_file.is_file()
+    text = version_file.read_text(encoding="utf-8").strip()
+    assert text.isdigit()
+    assert int(text) >= 1
+
+
+def test_portable_updater_manifest_paths_exist():
+    common = (
+        ROOT / "scripts" / "portable" / "portable_updater_common.ps1"
+    ).read_text(encoding="utf-8")
+    assert "Get-PortableUpdaterManifest" in common
+    for rel in (
+        "build-scripts/templates/Update-Next-Trainer.bat",
+        "scripts/portable/bootstrap_portable_updaters.ps1",
+        "scripts/portable/UPDATER_VERSION",
+        "scripts/portable/portable_git.py",
+        ".gitignore",
+        ".gitattributes",
+    ):
+        assert rel in common
+    bat = (ROOT / "build-scripts" / "templates" / "Update-Next-Trainer.bat").read_text(
+        encoding="utf-8"
+    )
+    assert "bootstrap_updater_scripts" in bat
+    assert "--no-bootstrap" in bat
+
+
+def test_git_updater_templates_delegate_to_safe_helper():
+    source = (ROOT / "build-scripts/templates/Update-Next-Trainer.bat").read_bytes()
+    assert source == (ROOT / "scripts/portable/templates/Update-Next-Trainer.bat").read_bytes()
+    text = source.decode("utf-8")
+    assert '"%GIT_HELPER%" update --trainer-dir "%PROJECT_DIR%"' in text
+    assert "git stash" not in text
+    assert "git reset" not in text
+    assert not any(line.strip().startswith("git pull ") for line in text.splitlines())
+    assert 'if defined NEXT_TRAINER_NETWORK_READY goto :network_policy_ready' in text
+    assert 'scripts\\network_run.py" --batch "%~f0" %*' in text
+    assert text.index(":network_policy_ready") < text.index("call :ensure_updater_bootstrap")
+
+
+def test_installers_bundle_the_tag_dictionary_for_offline_translation():
+    prefetch = ROOT / "scripts" / "prefetch_tag_dictionary.py"
+    assert prefetch.is_file()
+    source = prefetch.read_text(encoding="utf-8")
+    assert "ChineseDictionaryService" in source
+    # The GitHub API is rate limited easily on shared build machines.
+    assert "raw.githubusercontent.com" in source
+    assert "_install_from_raw" in source
+
+    install = (ROOT / "install-cn.ps1").read_text(encoding="utf-8-sig")
+    assert "prefetch_tag_dictionary.py --if-missing" in install
+
+    builder = (ROOT / "build-scripts" / "build_portable.ps1").read_text(encoding="utf-8")
+    assert "prefetch_tag_dictionary.py" in builder
+    assert "assets\\tag_translation\\danbooru" in builder
+    assert "SkipTagDictionaryPrefetch" in builder

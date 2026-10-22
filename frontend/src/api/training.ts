@@ -1,0 +1,63 @@
+import { apiData } from "./client"
+import type { FormModel } from "../schema/adapter"
+
+export interface TrainingPreset {
+  metadata: {
+    name: string
+    version?: string
+    author?: string
+    train_type?: string
+    description?: string
+  }
+  data: FormModel
+}
+
+export interface ImportValidation {
+  result: "ok" | "redirect" | "reject"
+  config?: FormModel
+  forced_train_type?: string
+  target_path?: string
+  message?: string
+  notice?: string
+  errors?: string[]
+}
+
+export interface NormalizedExport {
+  config: FormModel
+  warnings: string[]
+}
+
+export interface TrainingStart {
+  task_id: string
+  queued?: boolean
+  output_name_renamed?: { from: string; to: string }
+  train_log_url?: string
+  train_log_path?: string
+  train_log_query?: string
+  metadata?: Record<string, unknown>
+}
+
+export interface PreflightResult {
+  ok: boolean
+  errors?: string[]
+  warnings?: string[]
+  [key: string]: unknown
+}
+
+function post<T>(path: string, body: unknown) {
+  return apiData<T>(path, { method: "POST", body: JSON.stringify(body) })
+}
+
+export const trainingApi = {
+  presets: async () => (await apiData<{ presets: TrainingPreset[] }>("/api/presets")).presets,
+  validateImport: (pageTrainType: string, config: FormModel) => post<ImportValidation>("/api/config/validate-import", { page_train_type: pageTrainType, config }),
+  normalizeExport: (pageTrainType: string, config: FormModel) => post<NormalizedExport>("/api/config/normalize-for-export", { page_train_type: pageTrainType, config }),
+  run: (config: FormModel) => post<TrainingStart>("/api/run", config),
+  saveParams: (pageTrainType: string, config: FormModel) =>
+    apiData<{ ok: boolean; page_train_type: string }>("/api/config/saved_params", { method: "PUT", body: JSON.stringify({ page_train_type: pageTrainType, config }) }),
+  animaFastPreflight: (config: FormModel) => post<PreflightResult>("/api/engines/anima-fast/preflight", config),
+  mossPreflight: (config: FormModel) => post<PreflightResult>("/api/engines/moss/preflight", config),
+  diffsynthPreflight: (config: FormModel) => post<PreflightResult>("/api/engines/diffsynth/preflight", config),
+  musubiPreflight: (config: FormModel) => post<PreflightResult>("/api/engines/musubi/preflight", config),
+  aiToolkitPreflight: (config: FormModel) => post<PreflightResult>("/api/engines/ai-toolkit/preflight", config),
+}
