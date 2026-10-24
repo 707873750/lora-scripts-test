@@ -28,7 +28,9 @@ def assert_idle(maintenance_only=False):
 
 def source_clone_commands(runtime, sources):
     return [
-        ["git", "clone", "--config", "core.autocrlf=false", "--config", "core.eol=lf", "--no-checkout", "--branch", UPSTREAM["branch"], apply_github_prefix(UPSTREAM["github"], sources.github_url_prefix), str(runtime.source)],
+        # Branch names can disappear; the audited commit is the source of truth.
+        ["git", "clone", "--config", "core.autocrlf=false", "--config", "core.eol=lf", "--no-checkout", apply_github_prefix(UPSTREAM["github"], sources.github_url_prefix), str(runtime.source)],
+        ["git", "-C", str(runtime.source), "fetch", "origin", UPSTREAM["commit"]],
         ["git", "-C", str(runtime.source), "checkout", "--detach", UPSTREAM["commit"]],
     ]
 

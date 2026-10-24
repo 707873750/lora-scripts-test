@@ -104,9 +104,11 @@ def test_plan_pins_source_and_isolates_python_and_dependencies(rt, monkeypatch):
     monkeypatch.setenv("VIRTUAL_ENV", "/gui/venv")
     sources = DownloadSources(pip_index_url="https://pip.example/simple", pytorch_index_url="https://torch.example/whl", github_url_prefix="https://git.example/")
     commands = installer.installation_plan(rt, sources)
-    assert "moss_lora" in commands[0]
+    assert "--branch" not in commands[0]
+    assert "moss_lora" not in commands[0]
     assert commands[0][-2] == "https://git.example/" + manifest.UPSTREAM["github"]
-    assert commands[1][-1] == manifest.UPSTREAM["commit"]
+    assert commands[1] == ["git", "-C", str(rt.source), "fetch", "origin", manifest.UPSTREAM["commit"]]
+    assert commands[2] == ["git", "-C", str(rt.source), "checkout", "--detach", manifest.UPSTREAM["commit"]]
     assert ["uv", "python", "install", "3.13", "--install-dir", str(rt.python_install_dir)] in commands
     venv = next(command for command in commands if command[:2] == ["uv", "venv"])
     assert "--managed-python" in venv

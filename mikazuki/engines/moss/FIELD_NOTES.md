@@ -71,7 +71,8 @@ format and do not scan unrelated TensorBoard/previews.
 
 Owned paths: `extensions/moss/source`, `.python`, `.venv`, `install_state.json`.
 `LORA_ENABLE_MOSS=0` disables the engine; default is enabled. The installer clones
-`moss_lora` then checks out the exact commit, creating a managed Python 3.13 venv.
+the repository without requiring the historical `moss_lora` branch, explicitly
+fetches and checks out the exact commit, creating a managed Python 3.13 venv.
 Important dependency pins from the upstream stack are:
 
 - `torch==2.14.1+cu132`, `torchvision==0.29.1+cu132`.

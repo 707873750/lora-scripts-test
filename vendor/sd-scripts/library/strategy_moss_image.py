@@ -177,8 +177,11 @@ class MossImageTextEncoderOutputsCachingStrategy(TextEncoderOutputsCachingStrate
         models: List[Any],
         text_encoding_strategy: TextEncodingStrategy,
         infos: List,
-        captions: List[str],
+        captions: Optional[List[str]] = None,
     ):
+        if captions is None:
+            captions = [info.caption for info in infos]
+
         uncond_embeds = self.get_uncond_embeds(tokenize_strategy, models, text_encoding_strategy)
         uncond_np = bf16_to_uint16(uncond_embeds)
         uncond_mask_np = np.ones(uncond_embeds.shape[0], dtype=np.int32)
